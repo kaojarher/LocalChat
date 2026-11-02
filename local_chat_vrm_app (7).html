@@ -1,0 +1,1107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Chat VRM Avatar</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Fonts (Inter & Outfit) -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            heading: ['Outfit', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f7ff',
+              100: '#e0effe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.5);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.8);
+    }
+
+    /* Glassmorphism Styles */
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+    }
+
+    .glass-card {
+      background: rgba(30, 41, 59, 0.5);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .glass-input {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #f8fafc;
+    }
+    .glass-input:focus {
+      border-color: #3b82f6;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+    }
+
+    /* Pulsing mic animation */
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+    .mic-active {
+      animation: pulse-ring 1.5s infinite;
+    }
+
+    /* Canvas full screen background */
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 0;
+      overflow: hidden;
+    }
+  </style>
+
+  <!-- Import Three.js and dependencies via ES Modules -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+        "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.1.2/lib/three-vrm.module.js"
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans h-screen w-screen overflow-hidden select-none dark">
+
+  <!-- 3D Canvas Background -->
+  <div id="canvas-container"></div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-screen" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-md transition-opacity duration-500">
+    <div class="relative flex items-center justify-center mb-4">
+      <div class="w-16 h-16 border-4 border-brand-500/30 border-t-brand-500 rounded-full animate-spin"></div>
+      <i class="fa-solid fa-cube text-brand-500 text-xl absolute"></i>
+    </div>
+    <p id="loading-text" class="text-slate-300 font-medium text-sm tracking-wide">Initializing 3D VRM Engine...</p>
+  </div>
+
+  <!-- Main UI Container -->
+  <div class="relative z-10 h-full w-full flex flex-col justify-between p-4 md:p-6 pointer-events-none">
+
+    <!-- Top Navigation / Status Header -->
+    <header class="flex justify-between items-center w-full pointer-events-auto">
+      <div class="flex items-center gap-3 glass-panel px-4 py-2.5 rounded-2xl">
+        <div class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+        <div>
+          <h1 class="text-sm font-bold tracking-wider font-heading uppercase text-white flex items-center gap-2">
+            Local VRM Chat <span class="text-[10px] bg-brand-500/20 text-brand-500 px-2 py-0.5 rounded-full border border-brand-500/30">AI</span>
+          </h1>
+          <p id="avatar-status-text" class="text-xs text-slate-400">Default Avatar Active</p>
+        </div>
+      </div>
+
+      <!-- Action Controls -->
+      <div class="flex items-center gap-2">
+        <!-- Quick Expression Selector -->
+        <div class="hidden sm:flex glass-panel rounded-2xl p-1 gap-1">
+          <button onclick="window.setVRMExpression('neutral')" class="px-2.5 py-1.5 rounded-xl hover:bg-slate-800/60 text-xs transition text-slate-300" title="Neutral">😐</button>
+          <button onclick="window.setVRMExpression('happy')" class="px-2.5 py-1.5 rounded-xl hover:bg-slate-800/60 text-xs transition text-slate-300" title="Happy">😊</button>
+          <button onclick="window.setVRMExpression('angry')" class="px-2.5 py-1.5 rounded-xl hover:bg-slate-800/60 text-xs transition text-slate-300" title="Angry">😠</button>
+          <button onclick="window.setVRMExpression('sad')" class="px-2.5 py-1.5 rounded-xl hover:bg-slate-800/60 text-xs transition text-slate-300" title="Sad">😢</button>
+          <button onclick="window.setVRMExpression('relaxed')" class="px-2.5 py-1.5 rounded-xl hover:bg-slate-800/60 text-xs transition text-slate-300" title="Relaxed">😌</button>
+        </div>
+
+        <!-- Open Pose Selector Button -->
+        <button id="open-pose-btn" class="glass-panel hover:bg-slate-800/80 p-3 rounded-2xl text-slate-200 transition-all duration-200 shadow-lg active:scale-95 flex items-center gap-2" title="Pose Control">
+          <i class="fa-solid fa-person-dots-from-line text-lg text-brand-400"></i>
+          <span class="text-xs font-semibold hidden md:inline">Pose</span>
+        </button>
+
+        <!-- Open Settings Button -->
+        <button id="open-settings-btn" class="glass-panel hover:bg-slate-800/80 p-3 rounded-2xl text-slate-200 transition-all duration-200 shadow-lg active:scale-95" title="Settings">
+          <i class="fa-solid fa-gear text-lg"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Floating Compact Bottom Chat Box Container -->
+    <main class="w-full max-w-2xl mx-auto pointer-events-auto flex flex-col justify-end">
+      <div id="chat-card" class="w-full glass-panel rounded-3xl flex flex-col h-[280px] max-h-[35vh] shadow-2xl overflow-hidden border border-white/10 transition-all duration-300 relative">
+        
+        <!-- Minimise / Collapse Toggle Header Bar -->
+        <div class="px-4 py-1.5 bg-slate-900/80 border-b border-white/10 flex items-center justify-between cursor-pointer select-none" id="chat-toggle-bar">
+          <span class="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
+            <i class="fa-solid fa-comments text-brand-400"></i> Conversation Panel
+          </span>
+          <button id="collapse-chat-btn" class="text-slate-400 hover:text-white p-1 text-xs transition" title="Minimize Chat">
+            <i class="fa-solid fa-chevron-down" id="collapse-icon"></i>
+          </button>
+        </div>
+
+        <!-- Chat History List -->
+        <div id="chat-history" class="flex-1 p-3.5 overflow-y-auto space-y-3 text-sm">
+          <!-- Welcome Message -->
+          <div class="flex gap-3 max-w-[85%]">
+            <div class="w-7 h-7 rounded-full bg-brand-600/30 border border-brand-500/40 flex items-center justify-center text-brand-400 shrink-0 mt-0.5">
+              <i class="fa-solid fa-robot text-xs"></i>
+            </div>
+            <div class="glass-card rounded-2xl rounded-tl-xs p-3 text-slate-200 leading-relaxed text-xs shadow-sm">
+              Hello! I'm your interactive VRM AI assistant. Upload your custom `.vrm` model, configure your API keys, and enjoy fully unobstructed view of your avatar!
+            </div>
+          </div>
+        </div>
+
+        <!-- Typing Indicator -->
+        <div id="typing-indicator" class="hidden px-4 py-1.5 text-xs text-brand-400 flex items-center gap-2">
+          <span class="flex gap-1">
+            <span class="w-1.5 h-1.5 bg-brand-500 rounded-full animate-bounce"></span>
+            <span class="w-1.5 h-1.5 bg-brand-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+            <span class="w-1.5 h-1.5 bg-brand-500 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+          </span>
+          <span id="typing-status-text" class="text-[11px]">Thinking...</span>
+        </div>
+
+        <!-- Input Box Bar -->
+        <div class="p-2.5 bg-slate-900/80 border-t border-white/10 flex items-center gap-2 shrink-0">
+          <!-- STT Microphone Button -->
+          <button id="mic-btn" class="glass-input p-2.5 rounded-2xl hover:bg-slate-800 text-slate-300 transition-all shrink-0 active:scale-95" title="Speech Recognition (STT)">
+            <i class="fa-solid fa-microphone text-sm"></i>
+          </button>
+
+          <!-- Text Area Input -->
+          <textarea id="chat-input" rows="1" placeholder="Type a message..." class="glass-input flex-1 rounded-2xl py-2 px-3 text-xs resize-none max-h-20 focus:outline-none"></textarea>
+
+          <!-- Send Button -->
+          <button id="send-btn" class="bg-brand-600 hover:bg-brand-500 text-white p-2.5 rounded-2xl transition-all shadow-md shrink-0 active:scale-95 disabled:opacity-50">
+            <i class="fa-solid fa-paper-plane text-sm"></i>
+          </button>
+        </div>
+
+      </div>
+    </main>
+
+  </div>
+
+  <!-- Settings Side Drawer Panel -->
+  <aside id="settings-drawer" class="fixed top-0 right-0 h-full w-full sm:w-[420px] glass-panel z-40 transform translate-x-full transition-transform duration-300 ease-in-out overflow-y-auto flex flex-col justify-between shadow-2xl border-l border-white/10">
+    <div class="p-6 space-y-6">
+      
+      <!-- Drawer Header -->
+      <div class="flex items-center justify-between border-b border-slate-700/60 pb-4">
+        <h2 class="text-lg font-bold font-heading text-white flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-brand-500"></i> Settings & Model
+        </h2>
+        <button id="close-settings-btn" class="text-slate-400 hover:text-white p-2 rounded-xl transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <!-- 1. VRM Model Loader Section -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">VRM Model Settings</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          <p class="text-xs text-slate-300">Select or drop a `.vrm` 3D character file from your computer.</p>
+          <label class="flex flex-col items-center justify-center border-2 border-dashed border-slate-600/60 hover:border-brand-500 rounded-xl p-4 cursor-pointer transition bg-slate-900/40 group">
+            <i class="fa-solid fa-cloud-arrow-up text-2xl text-slate-400 group-hover:text-brand-500 mb-1 transition"></i>
+            <span class="text-xs text-slate-300 font-medium">Upload VRM File</span>
+            <input type="file" id="vrm-file-input" accept=".vrm" class="hidden">
+          </label>
+          <div class="space-y-2">
+            <label class="text-[11px] text-slate-400">Official / Open-License Sample Models</label>
+            <select id="vrm-preset-select" class="w-full text-xs py-2 px-2 rounded-xl bg-slate-900 text-slate-200 border border-white/10 focus:outline-none focus:border-brand-500"></select>
+            <p id="vrm-preset-info" class="text-[11px] leading-relaxed text-slate-400"></p>
+            <button id="load-official-vrm-btn" class="w-full text-xs py-2 rounded-xl bg-brand-500/20 hover:bg-brand-500/30 text-brand-500 transition border border-brand-500/30 disabled:opacity-50 disabled:cursor-not-allowed">
+              Load Selected Model
+            </button>
+          </div>
+          <button id="reset-vrm-btn" class="w-full text-xs py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition border border-white/5">
+            Reset to Procedural Avatar
+          </button>
+        </div>
+      </div>
+
+      <!-- 2. LLM API Endpoint Settings -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">LLM Provider Configuration</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          
+          <div>
+            <label class="text-xs text-slate-300 mb-1 block">API Base URL</label>
+            <input type="text" id="api-base-url" value="http://localhost:11434/v1" placeholder="http://localhost:11434/v1 or https://api.openai.com/v1" class="glass-input w-full rounded-xl px-3 py-2 text-xs">
+            <span class="text-[10px] text-slate-400">Works with OpenAI, Ollama, LM Studio, VLLM, etc.</span>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-300 mb-1 block">API Key</label>
+            <input type="password" id="api-key" placeholder="sk-..." class="glass-input w-full rounded-xl px-3 py-2 text-xs">
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-300 mb-1 block">Model Name</label>
+            <input type="text" id="api-model-name" value="hichu" placeholder="gpt-4o-mini, llama3, qwen2.5" class="glass-input w-full rounded-xl px-3 py-2 text-xs">
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 3. Character Persona Prompt -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">System Prompt / Persona</label>
+        <div class="glass-card p-4 rounded-2xl">
+          <textarea id="system-prompt" rows="3" class="glass-input w-full rounded-xl p-3 text-xs leading-relaxed" placeholder="Define how the AI persona should respond...">我是一位樂於助人、情感豐富且友善的AI動漫夥伴。我會在對話中加入諸如 [開心]、[難過]、[生氣]、[放鬆] 之類的情感標籤，以此觸發相應的面部表情！並持續用繁體中文回應</textarea>
+        </div>
+      </div>
+
+      <!-- 4. Voice & Speech Settings -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Text-To-Speech (TTS)</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          <div>
+            <label class="text-xs text-slate-300 mb-1 block">Voice Selector</label>
+            <select id="tts-voice-select" class="glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900"></select>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-slate-300 flex justify-between mb-1">
+                <span>Speed / Rate</span>
+                <span id="tts-rate-val" class="text-brand-400">1.0</span>
+              </label>
+              <input type="range" id="tts-rate" min="0.5" max="2" step="0.1" value="1.0" class="w-full accent-brand-500">
+            </div>
+
+            <div>
+              <label class="text-xs text-slate-300 flex justify-between mb-1">
+                <span>Pitch</span>
+                <span id="tts-pitch-val" class="text-brand-400">1.1</span>
+              </label>
+              <input type="range" id="tts-pitch" min="0.5" max="2" step="0.1" value="1.1" class="w-full accent-brand-500">
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Drawer Footer -->
+    <div class="p-6 border-t border-slate-700/60 bg-slate-950/40">
+      <button id="save-settings-btn" class="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white font-semibold rounded-2xl transition shadow-lg text-sm">
+        Save & Apply Configuration
+      </button>
+    </div>
+  </aside>
+
+  <!-- Pose Selection Modal / Floating Menu -->
+  <div id="pose-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-300">
+    <div class="glass-panel w-full max-w-md rounded-3xl p-6 border border-white/10 shadow-2xl space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-700/60 pb-3">
+        <h3 class="text-base font-bold font-heading text-white flex items-center gap-2">
+          <i class="fa-solid fa-person-running text-brand-500"></i> 姿勢控制 (Avatar Pose)
+        </h3>
+        <button id="close-pose-btn" class="text-slate-400 hover:text-white p-1 rounded-xl transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-300">請選擇角色的姿勢動作 (Select Pose Preset)：</p>
+
+      <div class="grid grid-cols-2 gap-2.5">
+        <button id="pose-btn-natural" onclick="window.applyVRMPose('natural')" class="glass-card hover:bg-brand-600/30 hover:border-brand-500/50 p-3 rounded-xl text-left text-xs font-medium text-slate-200 transition flex items-center gap-2.5 border-brand-500/80 bg-brand-500/10">
+          <i class="fa-solid fa-person text-brand-400 text-base"></i>
+          <div>
+            <div class="font-bold flex items-center gap-1.5">
+              Natural Rest 
+              <span class="text-[9px] bg-brand-500 text-white px-1.5 py-0.2 rounded-full font-normal">自然垂放</span>
+            </div>
+            <div class="text-[10px] text-slate-400">雙手自然放鬆垂在兩側</div>
+          </div>
+        </button>
+
+        <button id="pose-btn-waving" onclick="window.applyVRMPose('waving')" class="glass-card hover:bg-brand-600/30 hover:border-brand-500/50 p-3 rounded-xl text-left text-xs font-medium text-slate-200 transition flex items-center gap-2.5">
+          <i class="fa-solid fa-hand-wave text-amber-400 text-base"></i>
+          <div>
+            <div class="font-bold">Friendly Wave</div>
+            <div class="text-[10px] text-slate-400">右手舉起親切打招呼</div>
+          </div>
+        </button>
+
+
+
+        <button id="pose-btn-reset" onclick="window.applyVRMPose('reset')" class="col-span-2 glass-card hover:bg-rose-600/20 hover:border-rose-500/40 p-2.5 rounded-xl text-center text-xs text-rose-300 font-medium transition mt-1">
+          重置為標準 T-Pose (Reset Standard)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Application Logic JavaScript -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+    // Global App State
+    const state = {
+      scene: null,
+      camera: null,
+      renderer: null,
+      controls: null,
+      currentVRM: null,
+      isLoadingVRM: false,
+      fallbackAvatar: null,
+      clock: new THREE.Clock(),
+      activePose: 'natural',
+      
+      // Audio / Lip-sync & TTS
+      speechSynth: window.speechSynthesis,
+      ttsVoices: [],
+      isSpeaking: false,
+      visemeVal: 0,
+      
+      // STT Speech Recognition
+      recognition: null,
+      isListening: false,
+
+      // Chat history state
+      messages: []
+    };
+
+    // --- 1. INITIALIZE THREE.JS 3D ENVIRONMENT ---
+    function init3D() {
+      const container = document.getElementById('canvas-container');
+
+      // Scene
+      state.scene = new THREE.Scene();
+
+      // Camera: Higher viewing angle and lifted focal center (so torso and waist are nicely framed in upper screen half)
+      state.camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 20.0);
+      state.camera.position.set(0.0, 1.15, 1.95);
+
+      // Renderer
+      state.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      state.renderer.setSize(window.innerWidth, window.innerHeight);
+      state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      state.renderer.outputEncoding = THREE.sRGBEncoding;
+      state.renderer.shadowMap.enabled = true;
+      container.appendChild(state.renderer.domElement);
+
+      // Orbit Controls: Focus slightly higher (y=1.1) to align face & upper torso in the upper 60% of viewport
+      state.controls = new OrbitControls(state.camera, state.renderer.domElement);
+      state.controls.target.set(0.0, 1.1, 0.0);
+      state.controls.enableDamping = true;
+      state.controls.maxPolarAngle = Math.PI / 2 + 0.1;
+      state.controls.minDistance = 0.5;
+      state.controls.maxDistance = 5.0;
+
+      // Lights
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
+      state.scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+      dirLight.position.set(1.0, 2.0, 1.0).normalize();
+      state.scene.add(dirLight);
+
+      const fillLight = new THREE.DirectionalLight(0x90e0ef, 0.5);
+      fillLight.position.set(-1.0, 0.5, -1.0).normalize();
+      state.scene.add(fillLight);
+
+      // Create Fallback Procedural Robot Avatar
+      createFallbackAvatar();
+
+      // Resize Listener
+      window.addEventListener('resize', onWindowResize);
+
+      // Hide Loading Screen
+      document.getElementById('loading-screen').classList.add('opacity-0');
+      setTimeout(() => {
+        document.getElementById('loading-screen').classList.add('hidden');
+      }, 500);
+
+      // Start Render Loop
+      animate();
+    }
+
+    // --- 2. FALLBACK 3D PROCEDURAL AVATAR ---
+    function createFallbackAvatar() {
+      const group = new THREE.Group();
+      group.position.set(0, 1.0, 0);
+
+      // Head
+      const headGeo = new THREE.SphereGeometry(0.2, 32, 32);
+      const headMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.2, metalness: 0.8 });
+      const head = new THREE.Mesh(headGeo, headMat);
+      head.position.y = 0.35;
+      group.add(head);
+
+      // Eyes
+      const eyeGeo = new THREE.SphereGeometry(0.03, 16, 16);
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x60a5fa });
+      
+      const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+      leftEye.position.set(-0.07, 0.37, 0.17);
+      group.add(leftEye);
+
+      const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+      rightEye.position.set(0.07, 0.37, 0.17);
+      group.add(rightEye);
+
+      // Mouth mesh for lip sync simulation
+      const mouthGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.01, 16);
+      const mouthMat = new THREE.MeshBasicMaterial({ color: 0xf43f5e });
+      const mouth = new THREE.Mesh(mouthGeo, mouthMat);
+      mouth.rotation.x = Math.PI / 2;
+      mouth.position.set(0, 0.28, 0.18);
+      group.add(mouth);
+
+      // Body
+      const bodyGeo = new THREE.CylinderGeometry(0.12, 0.18, 0.45, 32);
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.position.y = 0;
+      group.add(body);
+
+      state.fallbackAvatar = { group, head, leftEye, rightEye, mouth };
+      state.scene.add(group);
+    }
+
+    // --- 3. VRM MODEL LOADING & HANDLING ---
+    // ---- 預設模型目錄（授權資訊已讀取各 VRM 檔頭 meta 驗證）----
+    // 每個模型有兩個來源：raw.githubusercontent.com（主要）與 jsDelivr GitHub CDN（備援）
+    const GH = (repo, branch, path) => [
+      `https://raw.githubusercontent.com/${repo}/${branch}/${path}`,
+      `https://cdn.jsdelivr.net/gh/${repo}@${branch}/${path}`
+    ];
+    const VROID_TERMS = 'VRoid 範例模型使用條件（可修改、散布，需遵守條款）';
+    const CC0_TERMS = 'CC0 公眾領域（無使用限制）';
+
+    const VRM_PRESETS = [
+      // --- ChatVRM 官方 ---
+      { id: 'chatvrm-b', group: 'ChatVRM 官方 (zoan37/ChatVRM)', name: 'AvatarSample_B（預設・最輕量）',
+        size: 6.7, ver: 'VRM 1.0', license: 'VRM 1.0 授權，允許再散布，免標註（VRoid Project / pixiv）',
+        urls: GH('zoan37/ChatVRM', 'main', 'public/AvatarSample_B.vrm') },
+
+      // --- VRoid Studio 官方範例 ---
+      { id: 'vroid-a', group: 'VRoid Studio 官方範例 (madjin/vrm-samples)', name: 'AvatarSample_A',
+        size: 15.1, ver: 'VRM 0.x', license: VROID_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/stable/AvatarSample_A.vrm') },
+      { id: 'vroid-b', group: 'VRoid Studio 官方範例 (madjin/vrm-samples)', name: 'AvatarSample_B（VRM 0.x 版）',
+        size: 15.4, ver: 'VRM 0.x', license: VROID_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/stable/AvatarSample_B.vrm') },
+      { id: 'vroid-c', group: 'VRoid Studio 官方範例 (madjin/vrm-samples)', name: 'AvatarSample_C',
+        size: 13.1, ver: 'VRM 0.x', license: VROID_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/stable/AvatarSample_C.vrm') },
+
+      // --- CC0 模型 ---
+      { id: 'orion', group: 'CC0 公眾領域模型', name: 'Orion（Polygonal Mind）',
+        size: 6.1, ver: 'VRM 0.x', license: CC0_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'Avatar_Orion.vrm') },
+      { id: 'vita', group: 'CC0 公眾領域模型', name: 'Vita',
+        size: 14.4, ver: 'VRM 0.x', license: CC0_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/beta/Vita.vrm') },
+      { id: 'vivi', group: 'CC0 公眾領域模型', name: 'Vivi',
+        size: 18.1, ver: 'VRM 0.x', license: CC0_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/beta/Vivi.vrm') },
+      { id: 'victoria', group: 'CC0 公眾領域模型', name: 'Victoria Rubin',
+        size: 15.5, ver: 'VRM 0.x', license: CC0_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/beta/Victoria_Rubin.vrm') },
+      { id: 'sakurada', group: 'CC0 公眾領域模型', name: 'Sakurada Fumiriya',
+        size: 19.3, ver: 'VRM 0.x', license: CC0_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/beta/Sakurada_Fumiriya.vrm') },
+      { id: 'shino', group: 'CC0 公眾領域模型', name: 'Sendagaya Shino',
+        size: 15.1, ver: 'VRM 0.x', license: CC0_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/beta/Sendagaya_Shino.vrm') },
+
+      // --- 需標註作者 ---
+      { id: 'seed-san', group: '需標註作者', name: 'Seed-san（VirtualCast）',
+        size: 10.7, ver: 'VRM 1.0', license: 'VRM 1.0 授權，允許再散布；使用時「必須標註」作者：VirtualCast, Inc.',
+        urls: GH('madjin/vrm-samples', 'master', 'Seed-san/vrm/Seed-san.vrm') }
+    ];
+    const DEFAULT_PRESET_ID = 'chatvrm-b';
+
+    function populatePresetSelect() {
+      const sel = document.getElementById('vrm-preset-select');
+      const groups = {};
+      VRM_PRESETS.forEach((m) => {
+        if (!groups[m.group]) {
+          const og = document.createElement('optgroup');
+          og.label = m.group;
+          sel.appendChild(og);
+          groups[m.group] = og;
+        }
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = `${m.name} · ${m.size} MB`;
+        groups[m.group].appendChild(opt);
+      });
+      sel.value = DEFAULT_PRESET_ID;
+      updatePresetInfo();
+      sel.onchange = updatePresetInfo;
+    }
+
+    function updatePresetInfo() {
+      const m = VRM_PRESETS.find((x) => x.id === document.getElementById('vrm-preset-select').value);
+      if (m) {
+        document.getElementById('vrm-preset-info').innerText =
+          `${m.ver} · ${m.size} MB · ${m.license}`;
+      }
+    }
+
+    async function loadPresetVRM(id) {
+      const m = VRM_PRESETS.find((x) => x.id === id);
+      if (!m || state.isLoadingVRM) return;
+      state.isLoadingVRM = true;
+      const btn = document.getElementById('load-official-vrm-btn');
+      const sel = document.getElementById('vrm-preset-select');
+      btn.disabled = true; sel.disabled = true;
+      try {
+        for (const url of m.urls) {
+          try {
+            await loadVRMModel(url, `Loaded: ${m.name}`);
+            return;
+          } catch (e) {
+            console.warn('VRM source failed, trying next:', url, e);
+          }
+        }
+        document.getElementById('avatar-status-text').innerText = `Failed to load ${m.name}`;
+        alert(`無法載入「${m.name}」，請檢查網路連線後重試。`);
+      } finally {
+        state.isLoadingVRM = false;
+        btn.disabled = false; sel.disabled = false;
+      }
+    }
+
+    // 相容舊呼叫：啟動時載入預設模型
+    function loadOfficialVRM() { return loadPresetVRM(DEFAULT_PRESET_ID); }
+
+    function loadVRMModel(url, statusText = 'Custom VRM Loaded') {
+      return new Promise((resolve, reject) => {
+        _loadVRMModel(url, statusText, resolve, reject);
+      });
+    }
+
+    function _loadVRMModel(url, statusText, resolve, reject) {
+      document.getElementById('loading-screen').classList.remove('hidden');
+      document.getElementById('loading-screen').classList.remove('opacity-0');
+      document.getElementById('loading-text').innerText = 'Loading VRM Model...';
+
+      const loader = new GLTFLoader();
+      loader.register((parser) => new VRMLoaderPlugin(parser));
+
+      loader.load(
+        url,
+        (gltf) => {
+          const vrm = gltf.userData.vrm;
+
+          // Remove existing VRM or fallback avatar
+          if (state.currentVRM) {
+            VRMUtils.deepDispose(state.currentVRM.scene);
+            state.scene.remove(state.currentVRM.scene);
+          }
+          if (state.fallbackAvatar) {
+            state.fallbackAvatar.group.visible = false;
+          }
+
+          // Unrotate model if needed
+          VRMUtils.rotateVRM0(vrm);
+          state.scene.add(vrm.scene);
+          state.currentVRM = vrm;
+
+          // Apply natural posture by default to fix T-pose arms
+          window.applyVRMPose('natural');
+
+          // Adjust Camera target nicely at chest/waist focal point above chat box
+          state.controls.target.set(0.0, 1.15, 0.0);
+          state.camera.position.set(0.0, 1.15, 1.7);
+
+          document.getElementById('avatar-status-text').innerText = statusText;
+          document.getElementById('loading-screen').classList.add('opacity-0');
+          setTimeout(() => document.getElementById('loading-screen').classList.add('hidden'), 500);
+          resolve(vrm);
+        },
+        (progress) => {
+          if (progress.total) {
+            const percent = Math.round((progress.loaded / progress.total) * 100);
+            document.getElementById('loading-text').innerText = `Loading VRM: ${percent}%`;
+          } else {
+            document.getElementById('loading-text').innerText = `Loading VRM: ${(progress.loaded / 1048576).toFixed(1)} MB`;
+          }
+        },
+        (error) => {
+          console.error("VRM Load Error:", error);
+          document.getElementById('loading-screen').classList.add('opacity-0');
+          setTimeout(() => document.getElementById('loading-screen').classList.add('hidden'), 500);
+          reject(error);
+        }
+      );
+    }
+
+    // Expression Control Helper
+    window.setVRMExpression = function(expressionName) {
+      if (!state.currentVRM || !state.currentVRM.expressionManager) return;
+      const em = state.currentVRM.expressionManager;
+      
+      // Reset emotions
+      ['happy', 'sad', 'angry', 'relaxed', 'surprised'].forEach(exp => {
+        em.setValue(exp, 0);
+      });
+
+      if (expressionName !== 'neutral') {
+        em.setValue(expressionName, 1.0);
+      }
+    };
+
+    // Set Humanoid Pose Presets
+    window.applyVRMPose = function(poseName) {
+      state.activePose = poseName;
+
+      // Update Active UI Button highlights
+      const poseBtns = ['natural', 'waving', 'thinking', 'crossed', 'reset'];
+      poseBtns.forEach(p => {
+        const btn = document.getElementById(`pose-btn-${p}`);
+        if (btn) {
+          if (p === poseName) {
+            btn.classList.add('border-brand-500/80', 'bg-brand-500/10');
+          } else {
+            btn.classList.remove('border-brand-500/80', 'bg-brand-500/10');
+          }
+        }
+      });
+
+      // Apply bones immediately
+      updateVRMBonePose();
+    };
+
+    function updateVRMBonePose() {
+      if (!state.currentVRM || !state.currentVRM.humanoid) return;
+      const humanoid = state.currentVRM.humanoid;
+
+      // Helper to fetch normalized bone node for consistent VRM humanoid transforms
+      const getBone = (boneName) => {
+        return humanoid.getNormalizedBoneNode(boneName) || humanoid.getRawBoneNode(boneName);
+      };
+
+      const leftShoulder = getBone('leftShoulder');
+      const rightShoulder = getBone('rightShoulder');
+      const leftUpperArm = getBone('leftUpperArm');
+      const rightUpperArm = getBone('rightUpperArm');
+      const leftLowerArm = getBone('leftLowerArm');
+      const rightLowerArm = getBone('rightLowerArm');
+      const leftHand = getBone('leftHand');
+      const rightHand = getBone('rightHand');
+
+      // Reset base arm rotations to Identity
+      [leftShoulder, rightShoulder, leftUpperArm, rightUpperArm, leftLowerArm, rightLowerArm, leftHand, rightHand].forEach(node => {
+        if (node) node.rotation.set(0, 0, 0);
+      });
+
+      switch(state.activePose) {
+        case 'natural': {
+          // 自然垂放：修正 three-vrm 座標系 (左手 -Z / 右手 +Z)
+          if (leftUpperArm) {
+            leftUpperArm.rotation.set(0.1, 0, -1.3);
+          }
+          if (rightUpperArm) {
+            rightUpperArm.rotation.set(0.1, 0, 1.3);
+          }
+          if (leftLowerArm) {
+            leftLowerArm.rotation.set(0, 0, -0.15);
+          }
+          if (rightLowerArm) {
+            rightLowerArm.rotation.set(0, 0, 0.15);
+          }
+          break;
+        }
+        case 'waving': {
+          if (leftUpperArm) leftUpperArm.rotation.set(0.1, 0, -1.3);
+          if (rightUpperArm) rightUpperArm.rotation.set(0.2, 0, 0.4);
+          if (rightLowerArm) rightLowerArm.rotation.set(0, 0, 1.4);
+          break;
+        }
+        case 'thinking': {
+          if (leftUpperArm) leftUpperArm.rotation.set(0.1, 0, -1.3);
+          if (rightUpperArm) rightUpperArm.rotation.set(0.6, -0.3, 0.8);
+          if (rightLowerArm) rightLowerArm.rotation.set(0, 0, 1.8);
+          break;
+        }
+        case 'crossed': {
+          if (leftUpperArm) leftUpperArm.rotation.set(0.5, 0.3, -0.6);
+          if (rightUpperArm) rightUpperArm.rotation.set(0.5, -0.3, 0.6);
+          if (leftLowerArm) leftLowerArm.rotation.set(0, 0.8, -0.8);
+          if (rightLowerArm) rightLowerArm.rotation.set(0, -0.8, 0.8);
+          break;
+        }
+        case 'reset':
+        default:
+          // Keep default T-pose
+          break;
+      }
+
+      // Force scene matrix update so changes render instantly
+      state.currentVRM.scene.updateMatrixWorld(true);
+    }
+
+    // --- 4. ANIMATION LOOP & IDLE BREATHING ---
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = state.clock.getDelta();
+      const time = state.clock.getElapsedTime();
+
+      // VRM Update Cycle
+      if (state.currentVRM) {
+        // vrm.update() resets internal bone transforms, so re-apply pose afterwards
+        state.currentVRM.update(delta);
+        updateVRMBonePose();
+
+        // Natural sway / breathing animation
+        if (state.currentVRM.humanoid) {
+          const spine = state.currentVRM.humanoid.getNormalizedBoneNode('spine');
+          if (spine) {
+            spine.rotation.z = Math.sin(time * 1.5) * 0.015;
+            spine.rotation.x = Math.cos(time * 1.2) * 0.015;
+          }
+        }
+
+        // Lip Sync viseme simulation
+        if (state.isSpeaking) {
+          state.visemeVal = (Math.sin(time * 25) + 1) * 0.4;
+          state.currentVRM.expressionManager?.setValue('aa', state.visemeVal);
+        } else {
+          state.currentVRM.expressionManager?.setValue('aa', 0);
+        }
+      } 
+      // Fallback Avatar Animation
+      else if (state.fallbackAvatar && state.fallbackAvatar.group.visible) {
+        state.fallbackAvatar.group.position.y = 1.0 + Math.sin(time * 2) * 0.03;
+        state.fallbackAvatar.head.rotation.y = Math.sin(time * 1.2) * 0.1;
+
+        if (state.isSpeaking) {
+          const mouthScale = 1.0 + Math.sin(time * 30) * 1.5;
+          state.fallbackAvatar.mouth.scale.set(mouthScale, 1, mouthScale);
+        } else {
+          state.fallbackAvatar.mouth.scale.set(1, 1, 1);
+        }
+      }
+
+      state.controls.update();
+      state.renderer.render(state.scene, state.camera);
+    }
+
+    function onWindowResize() {
+      state.camera.aspect = window.innerWidth / window.innerHeight;
+      state.camera.updateProjectionMatrix();
+      state.renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // --- 5. TEXT-TO-SPEECH (TTS) & STT ---
+    function initSpeech() {
+      // Load Web Speech Voices
+      const populateVoices = () => {
+        state.ttsVoices = state.speechSynth.getVoices();
+        const select = document.getElementById('tts-voice-select');
+        select.innerHTML = '';
+        
+        state.ttsVoices.forEach((voice, i) => {
+          const option = document.createElement('option');
+          option.value = i;
+          option.textContent = `${voice.name} (${voice.lang})`;
+          if (voice.default || voice.lang.includes('en')) option.selected = true;
+          select.appendChild(option);
+        });
+      };
+
+      populateVoices();
+      if (speechSynthesis.onvoiceschanged !== undefined) {
+        speechSynthesis.onvoiceschanged = populateVoices;
+      }
+
+      // STT Speech Recognition Setup
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        state.recognition = new SpeechRecognition();
+        state.recognition.continuous = false;
+        state.recognition.interimResults = false;
+
+        state.recognition.onstart = () => {
+          state.isListening = true;
+          document.getElementById('mic-btn').classList.add('bg-red-500/30', 'text-red-400', 'mic-active');
+        };
+
+        state.recognition.onresult = (e) => {
+          const transcript = e.results[0][0].transcript;
+          document.getElementById('chat-input').value = transcript;
+        };
+
+        state.recognition.onend = () => {
+          state.isListening = false;
+          document.getElementById('mic-btn').classList.remove('bg-red-500/30', 'text-red-400', 'mic-active');
+        };
+      } else {
+        document.getElementById('mic-btn').title = "STT is not supported in this browser.";
+      }
+    }
+
+    function speakText(text) {
+      if (!state.speechSynth) return;
+      state.speechSynth.cancel(); // Stop current speech
+
+      // Clean sentiment tags from spoken text
+      const cleanText = text.replace(/\[(happy|sad|angry|relaxed|neutral)\]/gi, '');
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      const voiceIndex = document.getElementById('tts-voice-select').value;
+      if (state.ttsVoices[voiceIndex]) utterance.voice = state.ttsVoices[voiceIndex];
+
+      utterance.rate = parseFloat(document.getElementById('tts-rate').value);
+      utterance.pitch = parseFloat(document.getElementById('tts-pitch').value);
+
+      utterance.onstart = () => { state.isSpeaking = true; };
+      utterance.onend = () => { state.isSpeaking = false; };
+      utterance.onerror = () => { state.isSpeaking = false; };
+
+      state.speechSynth.speak(utterance);
+    }
+
+    // --- 6. CHATBOT LLM INTEGRATION ---
+    async function handleSendMessage() {
+      const inputEl = document.getElementById('chat-input');
+      const message = inputEl.value.trim();
+      if (!message) return;
+
+      inputEl.value = '';
+      appendChatMessage('user', message);
+
+      // Show Typing Indicator
+      const typingEl = document.getElementById('typing-indicator');
+      typingEl.classList.remove('hidden');
+
+      // Prepare API Request Payload
+      const baseUrl = document.getElementById('api-base-url').value.replace(/\/$/, "");
+      const apiKey = document.getElementById('api-key').value;
+      const model = document.getElementById('api-model-name').value;
+      const systemPrompt = document.getElementById('system-prompt').value;
+
+      state.messages.push({ role: 'user', content: message });
+
+      const requestMessages = [
+        { role: 'system', content: systemPrompt },
+        ...state.messages
+      ];
+
+      try {
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: requestMessages,
+            temperature: 0.7
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const assistantReply = data.choices[0]?.message?.content || "No response received.";
+
+        // Sentiment Expression Triggering based on response tag
+        if (assistantReply.includes('[happy]')) window.setVRMExpression('happy');
+        else if (assistantReply.includes('[sad]')) window.setVRMExpression('sad');
+        else if (assistantReply.includes('[angry]')) window.setVRMExpression('angry');
+        else if (assistantReply.includes('[relaxed]')) window.setVRMExpression('relaxed');
+
+        state.messages.push({ role: 'assistant', content: assistantReply });
+        appendChatMessage('assistant', assistantReply);
+        speakText(assistantReply);
+
+      } catch (err) {
+        console.error("Chat API Error:", err);
+        const errorMsg = `[Error] Could not connect to LLM endpoint: ${err.message}. Please check your base URL or API key settings.`;
+        appendChatMessage('assistant', errorMsg);
+      } finally {
+        typingEl.classList.add('hidden');
+      }
+    }
+
+    function appendChatMessage(role, text) {
+      const history = document.getElementById('chat-history');
+      const msgDiv = document.createElement('div');
+      msgDiv.className = `flex gap-3 max-w-[85%] ${role === 'user' ? 'ml-auto flex-row-reverse' : ''}`;
+
+      const avatar = role === 'user' 
+        ? `<div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 shrink-0 mt-0.5"><i class="fa-solid fa-user text-xs"></i></div>`
+        : `<div class="w-8 h-8 rounded-full bg-brand-600/30 border border-brand-500/40 flex items-center justify-center text-brand-400 shrink-0 mt-0.5"><i class="fa-solid fa-robot text-xs"></i></div>`;
+
+      const cardStyle = role === 'user'
+        ? `bg-brand-600 text-white rounded-2xl rounded-tr-xs p-3.5 leading-relaxed shadow-sm`
+        : `glass-card rounded-2xl rounded-tl-xs p-3.5 text-slate-200 leading-relaxed shadow-sm`;
+
+      msgDiv.innerHTML = `
+        ${avatar}
+        <div class="${cardStyle}">${escapeHTML(text)}</div>
+      `;
+
+      history.appendChild(msgDiv);
+      history.scrollTop = history.scrollHeight;
+    }
+
+    function escapeHTML(str) {
+      return str.replace(/[&<>'"]/g, 
+        tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
+    }
+
+    // --- 7. EVENT LISTENERS SETUP ---
+    function setupUIEvents() {
+      // Settings Drawer Toggles
+      const drawer = document.getElementById('settings-drawer');
+      document.getElementById('open-settings-btn').onclick = () => drawer.classList.remove('translate-x-full');
+      document.getElementById('close-settings-btn').onclick = () => drawer.classList.add('translate-x-full');
+      document.getElementById('save-settings-btn').onclick = () => drawer.classList.add('translate-x-full');
+
+      // Pose Modal Toggles
+      const poseModal = document.getElementById('pose-modal');
+      const openPoseBtn = document.getElementById('open-pose-btn');
+      const closePoseBtn = document.getElementById('close-pose-btn');
+
+      openPoseBtn.onclick = () => {
+        poseModal.classList.remove('opacity-0', 'pointer-events-none');
+      };
+      closePoseBtn.onclick = () => {
+        poseModal.classList.add('opacity-0', 'pointer-events-none');
+      };
+
+      // Close modal when selecting a pose
+      poseModal.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          poseModal.classList.add('opacity-0', 'pointer-events-none');
+        });
+      });
+
+      // Chat Box Minimize/Expand Toggle
+      let isChatCollapsed = false;
+      const chatCard = document.getElementById('chat-card');
+      const chatToggleBar = document.getElementById('chat-toggle-bar');
+      const collapseIcon = document.getElementById('collapse-icon');
+
+      const toggleChatCollapse = () => {
+        isChatCollapsed = !isChatCollapsed;
+        if (isChatCollapsed) {
+          chatCard.style.height = '36px';
+          collapseIcon.className = 'fa-solid fa-chevron-up';
+        } else {
+          chatCard.style.height = '280px';
+          collapseIcon.className = 'fa-solid fa-chevron-down';
+        }
+      };
+
+      chatToggleBar.onclick = toggleChatCollapse;
+
+      // VRM File Input
+      document.getElementById('vrm-file-input').onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const url = URL.createObjectURL(file);
+          loadVRMModel(url).catch(() => alert("Failed to load VRM file. Reverting to default avatar."));
+        }
+      };
+
+      // Load Official ChatVRM Avatar
+      populatePresetSelect();
+      document.getElementById('load-official-vrm-btn').onclick = () =>
+        loadPresetVRM(document.getElementById('vrm-preset-select').value);
+
+      // Reset to Procedural Avatar
+      document.getElementById('reset-vrm-btn').onclick = () => {
+        if (state.currentVRM) {
+          VRMUtils.deepDispose(state.currentVRM.scene);
+          state.scene.remove(state.currentVRM.scene);
+          state.currentVRM = null;
+        }
+        if (state.fallbackAvatar) {
+          state.fallbackAvatar.group.visible = true;
+        }
+        document.getElementById('avatar-status-text').innerText = 'Procedural Avatar Active';
+      };
+
+      // Range Sliders UI Labels
+      document.getElementById('tts-rate').oninput = (e) => {
+        document.getElementById('tts-rate-val').innerText = e.target.value;
+      };
+      document.getElementById('tts-pitch').oninput = (e) => {
+        document.getElementById('tts-pitch-val').innerText = e.target.value;
+      };
+
+      // Send Message Events
+      document.getElementById('send-btn').onclick = handleSendMessage;
+      document.getElementById('chat-input').onkeydown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          handleSendMessage();
+        }
+      };
+
+      // Mic Button STT Event
+      document.getElementById('mic-btn').onclick = () => {
+        if (!state.recognition) return;
+        if (state.isListening) {
+          state.recognition.stop();
+        } else {
+          state.recognition.start();
+        }
+      };
+    }
+
+    // Initialize Application
+    window.onload = () => {
+      init3D();
+      initSpeech();
+      setupUIEvents();
+      loadOfficialVRM(); // 啟動時自動載入官方 VRM
+    };
+  </script>
+</body>
+</html>
