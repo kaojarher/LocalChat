@@ -168,6 +168,7 @@
 
     <!-- Floating Compact Bottom Chat Box Container -->
     <main class="w-full max-w-2xl mx-auto pointer-events-auto flex flex-col justify-end">
+      <div id="caption" class="hidden mb-2 mx-auto max-w-xl text-center text-sm md:text-base text-white bg-black/50 backdrop-blur px-4 py-2 rounded-2xl pointer-events-none"></div>
       <div id="chat-card" class="w-full glass-panel rounded-3xl flex flex-col h-[280px] max-h-[35vh] shadow-2xl overflow-hidden border border-white/10 transition-all duration-300 relative">
         
         <!-- Minimise / Collapse Toggle Header Bar -->
@@ -213,6 +214,9 @@
           <!-- Text Area Input -->
           <textarea id="chat-input" rows="1" placeholder="Type a message..." class="glass-input flex-1 rounded-2xl py-2 px-3 text-xs resize-none max-h-20 focus:outline-none"></textarea>
 
+          <button id="mute-btn" class="glass-input p-2.5 rounded-2xl hover:bg-slate-800 text-slate-300 transition shrink-0 active:scale-95" title="語音開／關"><i class="fa-solid fa-volume-high text-sm"></i></button>
+          <button id="stop-btn" class="glass-input p-2.5 rounded-2xl hover:bg-slate-800 text-slate-300 transition shrink-0 active:scale-95" title="停止（中斷語音與回覆）"><i class="fa-solid fa-stop text-sm"></i></button>
+          <button id="clear-btn" class="glass-input p-2.5 rounded-2xl hover:bg-slate-800 text-slate-300 transition shrink-0 active:scale-95" title="清除此角色對話"><i class="fa-solid fa-trash-can text-sm"></i></button>
           <!-- Send Button -->
           <button id="send-btn" class="bg-brand-600 hover:bg-brand-500 text-white p-2.5 rounded-2xl transition-all shadow-md shrink-0 active:scale-95 disabled:opacity-50">
             <i class="fa-solid fa-paper-plane text-sm"></i>
@@ -371,6 +375,18 @@
         </div>
       </div>
 
+      <!-- 3.5 Long-term Memory -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Long-term Memory（長期記憶・依角色儲存）</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          <textarea id="mem-facts" rows="5" class="glass-input w-full rounded-xl p-3 text-xs leading-relaxed" placeholder="每行一條記憶（關於使用者的資訊、約定…），可直接編輯或新增"></textarea>
+          <textarea id="mem-summary" rows="3" class="glass-input w-full rounded-xl p-3 text-xs leading-relaxed" placeholder="先前對話摘要（自動整理，也可手動修改）"></textarea>
+          <label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" id="mem-auto" checked class="accent-brand-500"> 每 6 輪對話自動整理記憶（會額外呼叫一次 LLM）</label>
+          <button id="mem-clear-btn" class="w-full text-xs py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/5 transition">清除此角色的全部記憶</button>
+          <p class="text-[10px] text-slate-400">說「記住：我喜歡喝咖啡」可立即記下。記憶存在瀏覽器 localStorage，換瀏覽器或清除資料會消失。</p>
+        </div>
+      </div>
+
       <!-- 4. Voice & Speech Settings -->
       <div class="space-y-3">
         <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Text-To-Speech (TTS)</label>
@@ -465,7 +481,11 @@
       actionTimers: [],
       poseToken: 0,
       speechToken: 0,
-      speechQueue: []
+      speechQueue: [],
+      dt: 0.016, time: 0, reqId: 0, abort: null, muted: localStorage.getItem('vrmchat.muted') === '1',
+      lookTarget: new THREE.Object3D(), gaze: { x: 0, y: 0 }, gazeT: { x: 0, y: 0 },
+      exprTarget: 'neutral', exprTime: 0, exprCur: {}, poseCur: {},
+      blink: { on: false, next: 1.5, t0: 0 }, mouth: { v: 'aa', amp: 0, next: 0, cur: {} }
     };
 
     // --- 1. INITIALIZE THREE.JS 3D ENVIRONMENT ---
@@ -512,6 +532,9 @@
 
       // Resize Listener
       window.addEventListener('resize', onWindowResize);
+      state.scene.add(state.lookTarget);
+      window.addEventListener('pointermove', (e) => { state.gazeT.x = (e.clientX / innerWidth) * 2 - 1; state.gazeT.y = 1 - (e.clientY / innerHeight) * 2; });
+      document.addEventListener('pointerleave', () => { state.gazeT.x = 0; state.gazeT.y = 0; });
 
       // Hide Loading Screen
       document.getElementById('loading-screen').classList.add('opacity-0');
@@ -707,6 +730,7 @@
           VRMUtils.rotateVRM0(vrm);
           state.scene.add(vrm.scene);
           state.currentVRM = vrm;
+          if (vrm.lookAt) vrm.lookAt.target = state.lookTarget;
 
           // Apply natural posture by default to fix T-pose arms
           window.applyVRMPose(activeChar()?.pose || 'natural');
@@ -739,19 +763,41 @@
     }
 
     // Expression Control Helper
-    window.setVRMExpression = function(expressionName) {
-      if (!state.currentVRM || !state.currentVRM.expressionManager) return;
-      const em = state.currentVRM.expressionManager;
-      
-      // Reset emotions
-      ['happy', 'sad', 'angry', 'relaxed', 'surprised'].forEach(exp => {
-        em.setValue(exp, 0);
-      });
+    window.setVRMExpression = function(name) { state.exprTarget = name || 'neutral'; state.exprTime = performance.now(); };
 
-      if (expressionName !== 'neutral') {
-        em.setValue(expressionName, 1.0);
-      }
-    };
+    // 每幀：視線追蹤、表情漸變（9 秒後回中性）、自動眨眼、母音口型（說話時 aa/ih/ou/ee/oh 平滑切換）
+    function updateLiveliness(delta, time) {
+      const em = state.currentVRM.expressionManager, g = state.gaze, gt = state.gazeT, kg = Math.min(1, delta * 4);
+      g.x += (gt.x - g.x) * kg; g.y += (gt.y - g.y) * kg;
+      state.lookTarget.position.set(state.move.x + g.x * 0.9, 1.4 + g.y * 0.5, 1.5 + state.move.z);
+      if (!em) return;
+      if (state.exprTarget !== 'neutral' && !state.isSpeaking && performance.now() - state.exprTime > 9000) state.exprTarget = 'neutral';
+      const ke = Math.min(1, delta * 8);
+      ['happy', 'sad', 'angry', 'relaxed', 'surprised'].forEach((n) => {
+        const v = state.exprCur[n] ?? 0, t = state.exprTarget === n ? 1 : 0;
+        em.setValue(n, (state.exprCur[n] = v + (t - v) * ke));
+      });
+      const b = state.blink; let bv = 0;
+      if (!b.on && time > b.next) { b.on = true; b.t0 = time; }
+      if (b.on) { const p = (time - b.t0) / 0.18; if (p >= 1) { b.on = false; b.next = time + 2 + Math.random() * 4; } else bv = Math.sin(p * Math.PI); }
+      em.setValue('blink', bv);
+      const m = state.mouth, V = ['aa', 'ih', 'ou', 'ee', 'oh'];
+      if (state.isSpeaking && time > m.next) { m.v = V[(Math.random() * 5) | 0]; m.amp = 0.3 + Math.random() * 0.5; m.next = time + 0.08 + Math.random() * 0.1; }
+      V.forEach((n) => {
+        const t = state.isSpeaking && n === m.v ? m.amp : 0, c = m.cur[n] ?? 0;
+        em.setValue(n, (m.cur[n] = c + (t - c) * Math.min(1, delta * 18)));
+      });
+    }
+    function showCaption(text) {
+      const el = $('caption'); if (!el || !text) return;
+      el.textContent = text; el.classList.remove('hidden');
+      clearTimeout(state.capTimer); state.capTimer = setTimeout(() => el.classList.add('hidden'), Math.max(4000, text.length * 250));
+    }
+    function stopAll() {
+      state.reqId++; state.abort?.abort();
+      state.speechToken++; state.speechSynth?.cancel(); state.isSpeaking = false;
+      $('typing-indicator').classList.add('hidden'); $('caption').classList.add('hidden');
+    }
 
     // Set Humanoid Pose Presets（14 種；數值為 [x,y,z] 弧度，VRM 1.0 座標，VRM 0.x 自動換算）
     const DOWN = { leftUpperArm:[.1,0,-1.3], rightUpperArm:[.1,0,1.3], leftLowerArm:[0,0,-.15], rightLowerArm:[0,0,.15] };
@@ -808,10 +854,15 @@
       // VRM 0.x 骨架軸向與 1.0 相反：X、Z 軸旋轉取負，Y 不變
       const isV0 = vrm.meta?.metaVersion === '0';
       const pose = POSES.find((p) => p.id === state.activePose) || POSES[0];
-      POSE_BONES.forEach((n) => get(n)?.rotation.set(0, 0, 0));
-      for (const [n, [x, y, z]] of Object.entries(pose.b)) {
+      const k = Math.min(1, state.dt * 6), g = state.gaze;
+      POSE_BONES.forEach((n) => {
+        const t = pose.b[n] || [0, 0, 0], cur = (state.poseCur[n] ??= [0, 0, 0]);
+        for (let i = 0; i < 3; i++) cur[i] += (t[i] - cur[i]) * k;   // 平滑過渡
+        let [x, y, z] = cur;
+        const f = n === 'head' ? 1 : n === 'neck' ? 0.5 : 0;           // 頭／頸跟隨視線，說話時輕微點頭
+        if (f) { x += f * (-g.y * 0.12 + (state.isSpeaking ? Math.sin(state.time * 5) * 0.03 : 0)); y += f * g.x * 0.25; }
         get(n)?.rotation.set(isV0 ? -x : x, y, isV0 ? -z : z);
-      }
+      });
       vrm.scene.updateMatrixWorld(true);
     }
 
@@ -820,6 +871,7 @@
       requestAnimationFrame(animate);
       const delta = state.clock.getDelta();
       const time = state.clock.getElapsedTime();
+      state.dt = delta; state.time = time;
 
       // VRM Update Cycle
       if (state.currentVRM) {
@@ -836,13 +888,7 @@
           }
         }
 
-        // Lip Sync viseme simulation
-        if (state.isSpeaking) {
-          state.visemeVal = (Math.sin(time * 25) + 1) * 0.4;
-          state.currentVRM.expressionManager?.setValue('aa', state.visemeVal);
-        } else {
-          state.currentVRM.expressionManager?.setValue('aa', 0);
-        }
+        updateLiveliness(delta, time);
       } 
       // Fallback Avatar Animation
       else if (state.fallbackAvatar && state.fallbackAvatar.group.visible) {
@@ -903,6 +949,7 @@
         state.recognition = new SpeechRecognition();
         state.recognition.continuous = false;
         state.recognition.interimResults = false;
+        state.recognition.lang = (state.ttsVoices.find((v) => v.name === activeChar()?.voiceName)?.lang) || 'zh-TW';
 
         state.recognition.onstart = () => {
           state.isListening = true;
@@ -912,6 +959,7 @@
         state.recognition.onresult = (e) => {
           const transcript = e.results[0][0].transcript;
           document.getElementById('chat-input').value = transcript;
+          handleSendMessage();   // 辨識完自動送出
         };
 
         state.recognition.onend = () => {
@@ -939,6 +987,7 @@
     function speakText(text, c = activeChar()) {
       const synth = state.speechSynth;
       if (!synth) return;
+      if (state.muted) { state.speechToken++; synth.cancel(); state.isSpeaking = false; return; }
       const token = ++state.speechToken;      // 新的朗讀會讓舊朗讀的回呼失效
       synth.cancel();
       const chunks = splitSpeech(speechText(text));
@@ -1348,7 +1397,7 @@ ${personaOf(c)}
 動作：[動作:揮手] [動作:鞠躬] [動作:歡呼] [動作:害羞] [動作:思考] [動作:叉腰] [動作:合十] [動作:舉手] [動作:雙手交叉] [動作:雙手前伸]
 也可使用 EMOJI（例如 😊😢😠😮👋🙏🎉🤔🙇），系統會對應成相應的表情或動作。
 場景與衣服標籤（[場景:星空]、[衣服:紅色]）只在使用者明確要求時才使用。
-請在情緒轉折處放入標籤，並一律使用繁體中文。`;
+請在情緒轉折處放入標籤，並一律使用繁體中文。${memoryBlock(c)}`;
     }
     function localIntro(c) {
       return `[開心]大家好，我是${c.name}！${plainPersona(c)}（目前無法連線到 LLM，這段自我介紹直接取自我的角色設定。）`;
@@ -1356,6 +1405,7 @@ ${personaOf(c)}
     function deliverReply(c, reply) {
       const { clean, actions } = extractActions(reply);
       appendChatMessage('assistant', clean.trim() || reply);
+      showCaption(speechText(clean));
       runActions(actions);
       speakText(clean, c);
     }
@@ -1368,7 +1418,7 @@ ${personaOf(c)}
         id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
         name: '角色', presetId: DEFAULT_PRESET_ID,
         baseUrl: 'http://localhost:11434/v1', apiKey: '', model: '', temperature: 0.7,
-        systemPrompt: '', voiceName: '', rate: 1.0, pitch: 1.1, messages: [], outfit: {}, pose: 'natural', provider: 'puter', ...o
+        systemPrompt: '', voiceName: '', rate: 1.0, pitch: 1.1, messages: [], outfit: {}, pose: 'natural', provider: 'puter', memory: [], summary: '', memIdx: 0, memAuto: true, ...o
       };
     }
     const activeChar = () => roster.list.find((c) => c.id === roster.activeId);
@@ -1412,6 +1462,7 @@ ${personaOf(c)}
       syncPuterSelect(c.model);
       $('api-temperature').value = c.temperature;
       $('system-prompt').value = c.systemPrompt;
+      fillMemoryUI(c);
       $('tts-rate').value = c.rate; $('tts-rate-val').innerText = c.rate;
       $('tts-pitch').value = c.pitch; $('tts-pitch-val').innerText = c.pitch;
       $('vrm-preset-select').value = c.presetId; updatePresetInfo();
@@ -1428,6 +1479,9 @@ ${personaOf(c)}
       const t = parseFloat($('api-temperature').value);
       c.temperature = Number.isFinite(t) ? Math.min(2, Math.max(0, t)) : 0.7;
       c.systemPrompt = $('system-prompt').value;
+      c.memory = $('mem-facts').value.split('\n').map((s) => s.trim()).filter(Boolean);
+      c.summary = $('mem-summary').value.trim();
+      c.memAuto = $('mem-auto').checked;
       c.rate = parseFloat($('tts-rate').value);
       c.pitch = parseFloat($('tts-pitch').value);
       const v = state.ttsVoices[$('tts-voice-select').value];
@@ -1541,6 +1595,51 @@ ${personaOf(c)}
       loadPresetVRM(activeChar().presetId);
     }
 
+    // --- 5.7 LONG-TERM MEMORY：條目（facts）＋滾動摘要（summary），依角色儲存 ---
+    function memoryBlock(c) {
+      const f = (c.memory || []).map((x) => '- ' + x).join('\n');
+      if (!f && !c.summary) return '';
+      return `\n【長期記憶】以下是你對使用者的長期記憶，請自然運用於對話（稱呼、延續話題、記得約定），不要逐條背誦；沒有記載的事不要編造。\n${f ? f + '\n' : ''}${c.summary ? '先前對話摘要：' + c.summary : ''}`;
+    }
+    function fillMemoryUI(c) {
+      $('mem-facts').value = (c.memory || []).join('\n');
+      $('mem-summary').value = c.summary || '';
+      $('mem-auto').checked = c.memAuto !== false;
+    }
+    async function askLLM(c, messages) {   // 非串流、低溫度的單次呼叫（供記憶整理使用）
+      if (c.provider === 'puter') return askPuter(c, messages);
+      const r = await fetch(`${(c.baseUrl || '').replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(c.apiKey ? { Authorization: `Bearer ${c.apiKey}` } : {}) },
+        body: JSON.stringify({ model: c.model, messages, temperature: 0.2 })
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return (await r.json()).choices?.[0]?.message?.content || '';
+    }
+    async function updateMemory(c) {
+      if (state.memBusy) return;
+      state.memBusy = true;
+      const end = c.messages.length, from = (c.memIdx || 0) > end ? 0 : (c.memIdx || 0);
+      const recent = c.messages.slice(from, end)
+        .map((m) => `${m.role === 'user' ? '使用者' : c.name}：${extractActions(m.content).clean.trim()}`).join('\n');
+      try {
+        const out = await askLLM(c, [
+          { role: 'system', content: '你是記憶整理器，只輸出 JSON，不要任何多餘文字或程式碼框。' },
+          { role: 'user', content: `現有長期記憶：\n${(c.memory || []).map((x) => '- ' + x).join('\n') || '（無）'}\n現有對話摘要：${c.summary || '（無）'}\n\n新對話：\n${recent}\n\n請輸出 JSON：{"facts":["..."],"summary":"..."}\n規則：facts 是關於使用者的穩定資訊（名字、喜好、職業、重要事件、與角色的約定），每條 30 字內，合併重複、移除過時，最多 30 條，仍正確的現有條目必須保留；summary 是更新後的對話摘要，200 字內；沒有新資訊就原樣回傳現有內容。` }
+        ]);
+        const j = JSON.parse(out.match(/\{[\s\S]*\}/)[0]);
+        if (Array.isArray(j.facts)) c.memory = [...new Set(j.facts.map((s) => String(s).trim()).filter(Boolean))].slice(0, 30);
+        if (typeof j.summary === 'string') c.summary = j.summary.trim().slice(0, 600);
+        c.memIdx = end; saveChars();
+        if (c.id === roster.activeId) fillMemoryUI(c);
+      } catch (e) { console.warn('記憶整理失敗，下次對話再試：', e); }
+      finally { state.memBusy = false; }
+    }
+    function maybeUpdateMemory(c) {
+      const pending = c.messages.length - Math.min(c.memIdx || 0, c.messages.length);
+      if (c.memAuto !== false && pending >= 12) updateMemory(c);
+    }
+
     // --- 6. CHATBOT LLM INTEGRATION ---
     async function handleSendMessage() {
       const inputEl = document.getElementById('chat-input');
@@ -1556,10 +1655,16 @@ ${personaOf(c)}
 
       // 鎖定發話當下的角色：即使請求中切換角色，回覆也只會寫入該角色
       const c = activeChar();
+      const rid = ++state.reqId, ac = (state.abort = new AbortController());
       const baseUrl = (c.baseUrl || '').replace(/\/$/, "");
       const apiKey = c.apiKey;
       const model = c.model;
 
+      const mm = message.match(/^(?:請|麻煩)?(?:你)?(?:幫我)?記住[：:，,\s]*(.{2,60})$/);
+      if (mm) {
+        c.memory = [...new Set([...(c.memory || []), mm[1].trim()])].slice(-30); saveChars(); fillMemoryUI(c);
+        appendChatMessage('system', '✔ 已記住：' + mm[1].trim());
+      }
       // (a) 本地解析口語指令：換動作 / 換場景 / 移動角色 / 衣服換色 / 表情
       const cmdDone = parseUserCommands(message);
       if (cmdDone.length) appendChatMessage('system', '✔ 已執行：' + cmdDone.join('、'));
@@ -1582,6 +1687,7 @@ ${personaOf(c)}
         if (c.provider === 'puter') assistantReply = await askPuter(c, requestMessages);
         else {
         const response = await fetch(`${baseUrl}/chat/completions`, {
+          signal: ac.signal,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1602,12 +1708,15 @@ ${personaOf(c)}
         assistantReply = data.choices[0]?.message?.content || "No response received.";
         }
 
+        if (rid !== state.reqId) return;   // 已按停止
         c.messages.push({ role: 'assistant', content: assistantReply });
         saveChars();
+        maybeUpdateMemory(c);
 
         if (c.id === roster.activeId) deliverReply(c, assistantReply);
 
       } catch (err) {
+        if (err?.name === 'AbortError' || rid !== state.reqId) return;
         console.error("Chat API Error:", err);
         const errorMsg = `[Error] ${c.name} 無法連線至 LLM（${c.provider === 'puter' ? 'Puter AI' : c.baseUrl}）：${errText(err)}。請檢查此角色的 LLM 設定。`;
         if (c.id === roster.activeId) appendChatMessage('assistant', errorMsg);
@@ -1744,6 +1853,26 @@ ${personaOf(c)}
           e.preventDefault();
           handleSendMessage();
         }
+      };
+
+      // 停止／靜音／清除對話
+      document.getElementById('stop-btn').onclick = stopAll;
+      const muteBtn = document.getElementById('mute-btn');
+      const paintMute = () => { muteBtn.innerHTML = `<i class="fa-solid ${state.muted ? 'fa-volume-xmark text-red-400' : 'fa-volume-high'} text-sm"></i>`; };
+      muteBtn.onclick = () => {
+        state.muted = !state.muted; localStorage.setItem('vrmchat.muted', state.muted ? '1' : '0');
+        if (state.muted) { state.speechToken++; state.speechSynth?.cancel(); state.isSpeaking = false; }
+        paintMute();
+      };
+      paintMute();
+      document.getElementById('clear-btn').onclick = () => {
+        const c = activeChar(); if (!c || !confirm(`清除「${c.name}」的對話紀錄？`)) return;
+        stopAll(); c.messages = []; c.memIdx = 0; saveChars(); renderChat(c);
+      };
+
+      document.getElementById('mem-clear-btn').onclick = () => {
+        const c = activeChar(); if (!c || !confirm(`清除「${c.name}」的全部長期記憶？`)) return;
+        c.memory = []; c.summary = ''; c.memIdx = c.messages.length; saveChars(); fillMemoryUI(c);
       };
 
       // Mic Button STT Event
