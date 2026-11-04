@@ -1048,6 +1048,7 @@
     }
 
     // 長句切成短段逐段朗讀：避免 Chrome 約 15 秒後中斷、語音物件被回收的已知問題
+    // 切成短句：Chrome 的網路語音（如 Google 國語）單段超過約 15 秒會被截斷，中文每段約 36 字以內較穩
     function splitSpeech(t, max = 90) {
       const parts = t.match(/[^。！？!?；;\n，,、.]+[。！？!?；;\n，,、.]*/g) || [t];
       const merged = []; let buf = '';
@@ -1055,41 +1056,81 @@
         if (buf && (buf + p).length > max) { merged.push(buf); buf = p; } else buf += p;
       }
       if (buf.trim()) merged.push(buf);
-      const out = [];
-      merged.forEach((m) => { for (let i = 0; i < m.length; i += 120) out.push(m.slice(i, i + 120)); });
+      const out = [], cut = Math.max(max, 30);
+      merged.forEach((m) => { for (let i = 0; i < m.length; i += cut) out.push(m.slice(i, i + cut)); });
       return out.map((x) => x.trim()).filter(Boolean);
+    }
+
+    // 逐段朗讀：前一段 onend 才送出下一段；單段錯誤重試一次、無回應則逾時略過，不會整串中斷
+    function speakSequential(plain, c, alive) {
+      return new Promise((resolve) => {
+        const synth = state.speechSynth;
+        const zh = /[\u3040-\u30ff\u4e00-\u9fff]/.test(plain);
+        const chunks = splitSpeech(plain, zh ? 36 : 90);
+        const voice = state.ttsVoices.find((v) => v.name === c.voiceName);
+        let i = 0, done = false;
+        // 保活：朗讀期間每 5 秒 pause()/resume() 一次，重設 Chrome 語音引擎的內部計時器（防止約 15 秒自動斷音）
+        const keep = setInterval(() => {
+          try { if (synth.speaking && !synth.paused) { synth.pause(); synth.resume(); } } catch (e) { /* 略過 */ }
+        }, 5000);
+        const end = () => { if (!done) { done = true; clearInterval(keep); resolve(); } };
+        const next = (retry = 0) => {
+          if (done) return;
+          if (!alive() || i >= chunks.length) return end();
+          const u = new SpeechSynthesisUtterance(chunks[i]);
+          if (voice) { u.voice = voice; u.lang = voice.lang; }
+          u.rate = c.rate; u.pitch = c.pitch;
+          state.curUtter = u;                          // 持有參照，避免被垃圾回收而中途無聲
+          let fired = false, started = false, poll = null, cap = null;
+          const t0 = Date.now();
+          const clear = () => { clearInterval(poll); clearTimeout(cap); };
+          const adv = () => { if (fired) return; fired = true; clear(); i++; next(); };
+          u.onstart = () => { started = true; };
+          u.onend = adv;
+          u.onerror = (e) => {
+            if (fired) return;
+            if (!alive() || e.error === 'interrupted' || e.error === 'canceled') { fired = true; clear(); return end(); }
+            console.warn('TTS 分段錯誤：', e.error, retry ? '（略過）' : '（重試）');
+            fired = true; clear();
+            if (retry < 1) { synth.cancel(); setTimeout(() => next(retry + 1), 150); } else { i++; next(); }
+          };
+          // 以引擎實際狀態判斷（部分語音不會觸發 onstart/onend）
+          poll = setInterval(() => {
+            if (fired) return;
+            if (!alive()) { fired = true; clear(); synth.cancel(); return end(); }
+            if (synth.speaking || synth.pending) { started = true; return; }
+            if (started) { console.warn('TTS：未收到結束事件，依引擎狀態視為已播完'); return adv(); }
+            if (Date.now() - t0 > 3000) {                // 3 秒仍未開始：引擎沒有反應
+              fired = true; clear();
+              console.warn('TTS：引擎未開始朗讀', retry ? '（略過此段）' : '（重試）');
+              synth.cancel(); synth.resume();
+              if (retry < 1) setTimeout(() => next(retry + 1), 200); else { i++; setTimeout(next, 100); }
+            }
+          }, 250);
+          // 硬上限：引擎卡住時強制略過
+          cap = setTimeout(() => {
+            if (fired) return; fired = true; clear();
+            console.warn('TTS 逾時（引擎一直處於朗讀中），強制略過此段');
+            synth.cancel(); i++; setTimeout(next, 200);
+          }, (u.text.length * 600) / Math.max(0.5, c.rate || 1) + 8000);
+          if (synth.paused) synth.resume();
+          synth.speak(u);
+        };
+        synth.cancel();
+        setTimeout(next, 80);                          // cancel() 後稍等再 speak，Chrome 才不會吞掉第一段
+      });
     }
 
     function speakText(text, c = activeChar()) {
       const synth = state.speechSynth;
       if (!synth) return;
-      if (state.muted) { state.speechToken++; synth.cancel(); state.isSpeaking = false; return; }
-      const token = ++state.speechToken;      // 新的朗讀會讓舊朗讀的回呼失效
+      const token = ++state.speechToken;      // 新的朗讀會讓舊朗讀失效
       synth.cancel();
-      const chunks = splitSpeech(speechText(text));
-      if (!chunks.length) { state.isSpeaking = false; return; }
-
-      const voice = state.ttsVoices.find((v) => v.name === c.voiceName);
-      const last = chunks.length - 1;
-      // 存進 state，避免 utterance 被垃圾回收而中途無聲
-      state.speechQueue = chunks.map((t, i) => {
-        const u = new SpeechSynthesisUtterance(t);
-        if (voice) { u.voice = voice; u.lang = voice.lang; }
-        u.rate = c.rate; u.pitch = c.pitch;
-        u.onstart = () => { if (token === state.speechToken) state.isSpeaking = true; };
-        u.onend = () => { if (token === state.speechToken && i === last) state.isSpeaking = false; };
-        u.onerror = (e) => {
-          if (token !== state.speechToken) return;
-          if (e.error !== 'interrupted' && e.error !== 'canceled') console.warn('TTS 分段錯誤，略過此段：', e.error);
-          if (i === last) state.isSpeaking = false;
-        };
-        return u;
-      });
-      // cancel() 後稍等再 speak，Chrome 才不會吞掉第一段
-      setTimeout(() => {
-        if (token !== state.speechToken) return;
-        state.speechQueue.forEach((u) => synth.speak(u));
-      }, 60);
+      const plain = speechText(text);
+      if (state.muted || !plain) { state.isSpeaking = false; return; }
+      state.isSpeaking = true;
+      speakSequential(plain, c, () => token === state.speechToken)
+        .then(() => { if (token === state.speechToken) state.isSpeaking = false; });
     }
 
     // --- 5.4 OUTFIT COLOR（衣服換色）---
@@ -2206,26 +2247,8 @@ ${personaOf(c)}
         };
         disc.cancelSpeech = finish;
         a.speaking = true;
-        const synth = state.speechSynth, c = a.char;
-        if (state.muted || !synth) { guard = setTimeout(finish, Math.max(1500, plain.length * 200)); return; }
-        synth.cancel();
-        const chunks = splitSpeech(plain), voice = state.ttsVoices.find((v) => v.name === c.voiceName), last = chunks.length - 1;
-        disc.speechQueue = chunks.map((t, i) => {       // 存進 disc，避免 utterance 被垃圾回收
-          const u = new SpeechSynthesisUtterance(t);
-          if (voice) { u.voice = voice; u.lang = voice.lang; }
-          u.rate = c.rate; u.pitch = c.pitch;
-          u.onend = () => { if (i === last) finish(); };
-          u.onerror = (e) => {
-            if (e.error !== 'interrupted' && e.error !== 'canceled') console.warn('TTS 分段錯誤，略過此段：', e.error);
-            if (i === last || token !== disc.token) finish();
-          };
-          return u;
-        });
-        guard = setTimeout(finish, (plain.length * 280) / Math.max(0.5, c.rate || 1) + 10500);  // 保險：語音引擎無回應時不卡住
-        setTimeout(() => {
-          if (token !== disc.token) return finish();
-          disc.speechQueue.forEach((u) => synth.speak(u));
-        }, 60);
+        if (state.muted || !state.speechSynth) { guard = setTimeout(finish, Math.max(1500, plain.length * 200)); return; }
+        speakSequential(plain, a.char, () => !done && token === disc.token).then(finish);
       });
     }
 
