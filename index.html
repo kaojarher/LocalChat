@@ -153,6 +153,18 @@
           <button onclick="window.setVRMExpression('relaxed')" class="px-2.5 py-1.5 rounded-xl hover:bg-slate-800/60 text-xs transition text-slate-300" title="Relaxed">😌</button>
         </div>
 
+        <!-- Multi-role Discussion Button -->
+        <button id="open-disc-btn" class="glass-panel hover:bg-slate-800/80 p-3 rounded-2xl text-slate-200 transition-all duration-200 shadow-lg active:scale-95 flex items-center gap-2" title="多角色討論">
+          <i class="fa-solid fa-users text-lg text-brand-500"></i>
+          <span class="text-xs font-semibold hidden md:inline">討論</span>
+        </button>
+
+        <!-- Screen Recording Button -->
+        <button id="rec-btn" class="glass-panel hover:bg-slate-800/80 p-3 rounded-2xl text-slate-200 transition-all duration-200 shadow-lg active:scale-95 flex items-center gap-2" title="錄製畫面與聲音">
+          <i id="rec-icon" class="fa-solid fa-circle text-lg text-red-400"></i>
+          <span id="rec-label" class="text-xs font-semibold hidden md:inline">錄影</span>
+        </button>
+
         <!-- Open Pose Selector Button -->
         <button id="open-pose-btn" class="glass-panel hover:bg-slate-800/80 p-3 rounded-2xl text-slate-200 transition-all duration-200 shadow-lg active:scale-95 flex items-center gap-2" title="Pose Control">
           <i class="fa-solid fa-person-dots-from-line text-lg text-brand-400"></i>
@@ -441,6 +453,66 @@
       <p class="text-xs text-slate-300">請選擇角色的姿勢動作 (Select Pose Preset)：</p>
 
       <div id="pose-grid" class="grid grid-cols-2 gap-2 max-h-[55vh] overflow-y-auto pr-1"></div>
+    </div>
+  </div>
+
+  <!-- Multi-role Discussion Modal -->
+  <div id="disc-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-300">
+    <div class="glass-panel w-full max-w-lg rounded-3xl p-6 border border-white/10 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center border-b border-slate-700/60 pb-3">
+        <h3 class="text-base font-bold font-heading text-white flex items-center gap-2">
+          <i class="fa-solid fa-users text-brand-500"></i> 多角色討論
+        </h3>
+        <button id="close-disc-btn" class="text-slate-400 hover:text-white p-1 rounded-xl transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="space-y-1.5">
+        <label class="text-xs text-slate-300 font-semibold">討論話題</label>
+        <textarea id="disc-topic" rows="2" maxlength="200" class="glass-input w-full rounded-xl p-3 text-xs leading-relaxed" placeholder="例如：AI 會取代人類的創作嗎？"></textarea>
+      </div>
+
+      <div class="space-y-1.5">
+        <div class="flex justify-between items-center">
+          <label class="text-xs text-slate-300 font-semibold">參與角色（選 2～4 位）</label>
+          <span id="disc-count" class="text-[11px] text-brand-500"></span>
+        </div>
+        <div id="disc-chars" class="space-y-1.5 max-h-44 overflow-y-auto pr-1"></div>
+        <p id="disc-warn" class="hidden text-[11px] text-amber-300 leading-relaxed"></p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div class="space-y-1.5">
+          <label class="text-xs text-slate-300 font-semibold">討論回合數（每回合每人發言一次）</label>
+          <select id="disc-rounds" class="glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900">
+            <option value="1">1 回合</option><option value="2">2 回合</option><option value="3" selected>3 回合</option>
+            <option value="4">4 回合</option><option value="5">5 回合</option><option value="6">6 回合</option>
+            <option value="8">8 回合</option><option value="10">10 回合</option>
+          </select>
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-xs text-slate-300 font-semibold">發言順序</label>
+          <select id="disc-order" class="glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900">
+            <option value="seq">依序輪流</option><option value="random">每回合隨機</option>
+          </select>
+        </div>
+      </div>
+
+      <p class="text-[11px] text-slate-400 leading-relaxed">討論進行中，可在下方聊天框輸入文字插話，下一位角色會先回應你。討論內容不會寫入各角色的個人對話紀錄與長期記憶。</p>
+      <p id="disc-status" class="text-[11px] text-emerald-300 min-h-[1em]"></p>
+
+      <div class="flex gap-2">
+        <button id="disc-start-btn" class="flex-1 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-2xl transition disabled:opacity-40 disabled:cursor-not-allowed">
+          <i class="fa-solid fa-play mr-1"></i> 開始討論
+        </button>
+        <button id="disc-stop-btn" disabled class="flex-1 py-2.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-semibold rounded-2xl transition border border-red-500/30 disabled:opacity-40 disabled:cursor-not-allowed">
+          <i class="fa-solid fa-stop mr-1"></i> 停止討論
+        </button>
+      </div>
+      <button id="disc-exit-btn" class="hidden w-full py-2 text-xs rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition border border-white/5 disabled:opacity-40">
+        結束討論並返回單人模式
+      </button>
     </div>
   </div>
 
@@ -734,6 +806,8 @@
 
           // Apply natural posture by default to fix T-pose arms
           window.applyVRMPose(activeChar()?.pose || 'natural');
+          snapPoseCur(state.poseCur, state.activePose);   // 載入當下即套用姿態，避免 T-Pose 閃現
+          if (disc.onStage) vrm.scene.visible = false;     // 討論舞台進行中，單人模型保持隱藏
           applyOutfit(); refreshOutfitUI();
 
           // Adjust Camera target nicely at chest/waist focal point above chat box
@@ -797,6 +871,7 @@
       state.reqId++; state.abort?.abort();
       state.speechToken++; state.speechSynth?.cancel(); state.isSpeaking = false;
       $('typing-indicator').classList.add('hidden'); $('caption').classList.add('hidden');
+      if (disc.active) stopDiscussion();
     }
 
     // Set Humanoid Pose Presets（14 種；數值為 [x,y,z] 弧度，VRM 1.0 座標，VRM 0.x 自動換算）
@@ -909,6 +984,7 @@
         if (state.currentVRM) state.currentVRM.scene.position.set(mv.x, 0, mv.z);
         else if (state.fallbackAvatar) { state.fallbackAvatar.group.position.x = mv.x; state.fallbackAvatar.group.position.z = mv.z; }
       }
+      updateActors(delta, time);
       if (stage.mode === 'stars') stage.group.rotation.y = time * 0.02;
       state.controls.update();
       state.renderer.render(state.scene, state.camera);
@@ -1648,6 +1724,10 @@ ${personaOf(c)}
 
       inputEl.value = '';
       appendChatMessage('user', message);
+      if (disc.active) {   // 討論進行中：使用者插話，下一位角色會先回應
+        disc.transcript.push({ name: '使用者', text: message }); disc.pendingUser = true;
+        return;
+      }
 
       // Show Typing Indicator
       const typingEl = document.getElementById('typing-indicator');
@@ -1886,12 +1966,552 @@ ${personaOf(c)}
       };
     }
 
+
+    // =====================================================================
+    // 8. 多角色討論（Multi-role Discussion）
+    //    - 每位參與角色各自載入一個 VRM「演員」，擁有獨立的姿勢／表情／口型／眨眼
+    //    - 載入時一律直接套用「自然垂放」姿態
+    //    - 角色依序以各自的 LLM 與語音發言，其他角色會轉頭看向發言者
+    // =====================================================================
+    const DISC_KEY = 'vrmchat.disc.v1';
+    const DISC_MAX = 4;
+    const TAG_COLORS = ['#38bdf8', '#f472b6', '#facc15', '#4ade80'];
+    const disc = {
+      active: false, busy: false, onStage: false, token: 0,
+      actors: [], speaker: null, transcript: [], abort: null,
+      speechQueue: [], cancelSpeech: null, timers: [], saved: null, pendingUser: false
+    };
+    const _v3 = new THREE.Vector3();
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // 直接把 poseCur 設為某姿勢的目標值（不經過平滑過渡）
+    function snapPoseCur(cur, id) {
+      const pose = POSES.find((p) => p.id === id) || POSES[0];
+      POSE_BONES.forEach((n) => { cur[n] = [...(pose.b[n] || [0, 0, 0])]; });
+    }
+
+    // --- 8.1 載入與建立演員 ---
+    async function loadActorVRM(c) {
+      const preset = VRM_PRESETS.find((m) => m.id === c.presetId) || VRM_PRESETS.find((m) => m.id === DEFAULT_PRESET_ID);
+      let lastErr;
+      for (const url of preset.urls) {
+        try {
+          const loader = new GLTFLoader();
+          loader.register((p) => new VRMLoaderPlugin(p));
+          const gltf = await loader.loadAsync(url);
+          const vrm = gltf.userData.vrm;
+          if (!vrm) throw new Error('不是有效的 VRM 檔案');
+          VRMUtils.rotateVRM0(vrm);
+          return vrm;
+        } catch (e) { lastErr = e; console.warn('VRM source failed, trying next:', url, e); }
+      }
+      throw lastErr || new Error('VRM 載入失敗');
+    }
+
+    function applyOutfitTo(vrm, o) {
+      vrm.scene.traverse((obj) => {
+        if (!obj.isMesh) return;
+        [].concat(obj.material).forEach((m) => {
+          if (!m || !m.name || !m.color) return;
+          const hex = o[m.name] ?? (CLOTH_RE.test(m.name) ? o.__auto__ : undefined);
+          if (hex) { m.color.set(hex); m.shadeColorFactor?.set(hex).multiplyScalar(0.7); }
+        });
+      });
+    }
+
+    function tagLayer() {
+      let el = $('actor-tags');
+      if (!el) {
+        el = document.createElement('div'); el.id = 'actor-tags';
+        el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:5;overflow:hidden';
+        document.body.appendChild(el);
+      }
+      return el;
+    }
+
+    function makeActor(c, vrm, idx) {
+      const color = TAG_COLORS[idx % TAG_COLORS.length];
+      const tag = document.createElement('div');
+      tag.textContent = c.name;
+      tag.style.cssText = `position:absolute;left:0;top:0;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;will-change:transform;transition:background .2s,border-color .2s,color .2s;background:rgba(15,23,42,.7);color:#fff;border:2px solid ${color}66`;
+      tagLayer().appendChild(tag);
+      const a = {
+        char: c, vrm, color, tag, tagOn: false, tagName: c.name,
+        x: 0, z: 0, yaw: 0, baseYaw: vrm.scene.rotation.y, phase: Math.random() * 6,
+        pose: 'natural', poseCur: {}, poseToken: 0, gaze: { x: 0, y: 0 },
+        exprTarget: 'neutral', exprTime: 0, exprCur: {},
+        blink: { on: false, next: 1 + Math.random() * 3, t0: 0 }, mouth: { v: 'aa', amp: 0, next: 0, cur: {} },
+        speaking: false, look: new THREE.Object3D()
+      };
+      snapPoseCur(a.poseCur, 'natural');            // 載入即為自然垂放
+      if (vrm.lookAt) vrm.lookAt.target = a.look;
+      applyOutfitTo(vrm, c.outfit || {});
+      state.scene.add(a.look, vrm.scene);
+      return a;
+    }
+
+    function layoutActors() {
+      const n = disc.actors.length, gap = n <= 2 ? 0.9 : 0.8;
+      disc.actors.forEach((a, i) => {
+        a.x = (i - (n - 1) / 2) * gap; a.z = 0; a.yaw = -a.x * 0.12;   // 稍微朝向中間
+        a.look.position.set(a.x, 1.45, 2.5);
+      });
+      const asp = window.innerWidth / window.innerHeight, halfW = ((n - 1) * gap) / 2 + 0.55;
+      const dist = Math.min(4.8, Math.max(1.8, halfW / (Math.tan(THREE.MathUtils.degToRad(15)) * asp)));
+      state.camera.position.set(0, 1.15, dist);
+      state.controls.target.set(0, 1.1, 0);
+    }
+
+    async function enterStage(chars) {
+      if (state.isLoadingVRM) throw new Error('目前正在載入單人模型，請稍後再試。');
+      state.isLoadingVRM = true;
+      const ls = $('loading-screen');
+      ls.classList.remove('hidden', 'opacity-0');
+      const loaded = [];
+      try {
+        for (let i = 0; i < chars.length; i++) {
+          $('loading-text').innerText = `載入角色 ${i + 1}/${chars.length}：${chars[i].name}`;
+          try { loaded.push({ c: chars[i], vrm: await loadActorVRM(chars[i]) }); }
+          catch (e) { console.error(e); alert(`角色「${chars[i].name}」的模型載入失敗：${errText(e)}`); }
+        }
+        if (loaded.length < 2) {
+          loaded.forEach((l) => VRMUtils.deepDispose(l.vrm.scene));
+          throw new Error('成功載入的角色不足 2 位，無法開始討論。');
+        }
+        exitStage(false);                              // 清掉舊舞台（保留視角備份）
+        if (!disc.saved) disc.saved = { pos: state.camera.position.clone(), target: state.controls.target.clone() };
+        if (state.currentVRM) state.currentVRM.scene.visible = false;
+        if (state.fallbackAvatar) state.fallbackAvatar.group.visible = false;
+        disc.actors = loaded.map((l, i) => makeActor(l.c, l.vrm, i));
+        disc.onStage = true;
+        layoutActors();
+      } finally {
+        state.isLoadingVRM = false;
+        ls.classList.add('opacity-0');
+        setTimeout(() => ls.classList.add('hidden'), 500);
+      }
+    }
+
+    function exitStage(restore = true) {
+      disc.timers.forEach(clearTimeout); disc.timers = [];
+      disc.actors.forEach((a) => {
+        state.scene.remove(a.vrm.scene, a.look);
+        VRMUtils.deepDispose(a.vrm.scene);
+        a.tag.remove();
+      });
+      disc.actors = []; disc.speaker = null; disc.onStage = false;
+      if (!restore) return;
+      if (state.currentVRM) state.currentVRM.scene.visible = true;
+      else if (state.fallbackAvatar) state.fallbackAvatar.group.visible = true;
+      if (disc.saved) {
+        state.camera.position.copy(disc.saved.pos); state.controls.target.copy(disc.saved.target);
+        disc.saved = null;
+      }
+    }
+
+    // --- 8.2 每幀更新（姿勢、表情、口型、視線、名牌） ---
+    function actorPose(a, delta) {
+      const vrm = a.vrm, h = vrm.humanoid; if (!h) return;
+      const isV0 = vrm.meta?.metaVersion === '0';       // VRM 0.x：X、Z 軸旋轉取負
+      const pose = POSES.find((p) => p.id === a.pose) || POSES[0];
+      const k = Math.min(1, delta * 6), g = a.gaze;
+      POSE_BONES.forEach((n) => {
+        const t = pose.b[n] || [0, 0, 0], cur = (a.poseCur[n] ??= [0, 0, 0]);
+        for (let i = 0; i < 3; i++) cur[i] += (t[i] - cur[i]) * k;
+        let [x, y, z] = cur;
+        const f = n === 'head' ? 1 : n === 'neck' ? 0.5 : 0;
+        if (f) { x += f * (-g.y * 0.12 + (a.speaking ? Math.sin(state.time * 5 + a.phase) * 0.03 : 0)); y += f * g.x * 0.25; }
+        (h.getNormalizedBoneNode(n) || h.getRawBoneNode(n))?.rotation.set(isV0 ? -x : x, y, isV0 ? -z : z);
+      });
+      const sp = h.getNormalizedBoneNode('spine');      // 呼吸擺動
+      if (sp) { sp.rotation.z += Math.sin(state.time * 1.5 + a.phase) * 0.015; sp.rotation.x += Math.cos(state.time * 1.2 + a.phase) * 0.015; }
+      vrm.scene.updateMatrixWorld(true);
+    }
+
+    function actorLive(a, delta, time) {
+      const em = a.vrm.expressionManager; if (!em) return;
+      if (a.exprTarget !== 'neutral' && !a.speaking && performance.now() - a.exprTime > 9000) a.exprTarget = 'neutral';
+      const ke = Math.min(1, delta * 8);
+      ['happy', 'sad', 'angry', 'relaxed', 'surprised'].forEach((n) => {
+        const v = a.exprCur[n] ?? 0, t = a.exprTarget === n ? 1 : 0;
+        em.setValue(n, (a.exprCur[n] = v + (t - v) * ke));
+      });
+      const b = a.blink; let bv = 0;
+      if (!b.on && time > b.next) { b.on = true; b.t0 = time; }
+      if (b.on) { const p = (time - b.t0) / 0.18; if (p >= 1) { b.on = false; b.next = time + 2 + Math.random() * 4; } else bv = Math.sin(p * Math.PI); }
+      em.setValue('blink', bv);
+      const m = a.mouth, V = ['aa', 'ih', 'ou', 'ee', 'oh'];
+      if (a.speaking && time > m.next) { m.v = V[(Math.random() * 5) | 0]; m.amp = 0.3 + Math.random() * 0.5; m.next = time + 0.08 + Math.random() * 0.1; }
+      V.forEach((n) => {
+        const t = a.speaking && n === m.v ? m.amp : 0, c = m.cur[n] ?? 0;
+        em.setValue(n, (m.cur[n] = c + (t - c) * Math.min(1, delta * 18)));
+      });
+    }
+
+    function placeTag(a) {
+      const head = a.vrm.humanoid?.getNormalizedBoneNode('head'); if (!head) return;
+      head.getWorldPosition(_v3); _v3.y += 0.2; _v3.project(state.camera);
+      a.tag.style.display = _v3.z < 1 ? '' : 'none';
+      a.tag.style.transform = `translate(${(_v3.x * 0.5 + 0.5) * window.innerWidth}px, ${(-_v3.y * 0.5 + 0.5) * window.innerHeight}px) translate(-50%, -100%)`;
+      const on = disc.speaker === a;
+      if (on !== a.tagOn) {
+        a.tagOn = on;
+        a.tag.style.background = on ? a.color + 'ee' : 'rgba(15,23,42,.7)';
+        a.tag.style.color = on ? '#0f172a' : '#fff';
+        a.tag.style.borderColor = on ? a.color : a.color + '66';
+      }
+      if (a.tagName !== a.char.name) { a.tagName = a.char.name; a.tag.textContent = a.tagName; }
+    }
+
+    function updateActors(delta, time) {
+      if (!disc.actors.length) return;
+      const sp = disc.speaker, kg = Math.min(1, delta * 3);
+      disc.actors.forEach((a) => {
+        const watch = sp && sp !== a ? sp : null;       // 非發言者：看向發言者
+        a.gaze.x += ((watch ? THREE.MathUtils.clamp((watch.x - a.x) / 1.4, -1, 1) : 0) - a.gaze.x) * kg;
+        a.gaze.y += (0 - a.gaze.y) * kg;
+        a.look.position.lerp(_v3.set(watch ? watch.x : a.x, 1.45, watch ? watch.z + 0.2 : 2.5), kg);
+        a.vrm.update(delta);                            // update() 會重置骨骼，之後再套用姿勢
+        a.vrm.scene.position.set(a.x, 0, a.z);
+        a.vrm.scene.rotation.y = a.baseYaw + a.yaw;
+        actorPose(a, delta);
+        actorLive(a, delta, time);
+        placeTag(a);
+      });
+    }
+
+    // 動作標籤：討論中只處理「表情」與「姿勢」，姿勢 5 秒後回到自然垂放
+    function actorDo(a, act) {
+      if (act.expr) { a.exprTarget = act.expr; a.exprTime = performance.now(); }
+      if (act.pose && POSES.some((p) => p.id === act.pose)) {
+        a.pose = act.pose;
+        const t = ++a.poseToken;
+        disc.timers.push(setTimeout(() => { if (t === a.poseToken) a.pose = 'natural'; }, 5000));
+      }
+    }
+    function actorActions(a, actions) {
+      actions.forEach((act, i) => disc.timers.push(setTimeout(() => actorDo(a, act), i * 1600)));
+    }
+
+    // --- 8.3 語音（回傳 Promise，朗讀完畢才 resolve） ---
+    function speakActor(a, text, token) {
+      return new Promise((resolve) => {
+        const plain = speechText(text);
+        if (!plain) return resolve();
+        let done = false, guard = null;
+        const finish = () => {
+          if (done) return; done = true; clearTimeout(guard);
+          a.speaking = false; if (disc.cancelSpeech === finish) disc.cancelSpeech = null; resolve();
+        };
+        disc.cancelSpeech = finish;
+        a.speaking = true;
+        const synth = state.speechSynth, c = a.char;
+        if (state.muted || !synth) { guard = setTimeout(finish, Math.max(1500, plain.length * 200)); return; }
+        synth.cancel();
+        const chunks = splitSpeech(plain), voice = state.ttsVoices.find((v) => v.name === c.voiceName), last = chunks.length - 1;
+        disc.speechQueue = chunks.map((t, i) => {       // 存進 disc，避免 utterance 被垃圾回收
+          const u = new SpeechSynthesisUtterance(t);
+          if (voice) { u.voice = voice; u.lang = voice.lang; }
+          u.rate = c.rate; u.pitch = c.pitch;
+          u.onend = () => { if (i === last) finish(); };
+          u.onerror = (e) => {
+            if (e.error !== 'interrupted' && e.error !== 'canceled') console.warn('TTS 分段錯誤，略過此段：', e.error);
+            if (i === last || token !== disc.token) finish();
+          };
+          return u;
+        });
+        guard = setTimeout(finish, (plain.length * 280) / Math.max(0.5, c.rate || 1) + 10500);  // 保險：語音引擎無回應時不卡住
+        setTimeout(() => {
+          if (token !== disc.token) return finish();
+          disc.speechQueue.forEach((u) => synth.speak(u));
+        }, 60);
+      });
+    }
+
+    // --- 8.4 LLM 發言 ---
+    async function askChar(c, messages, signal) {
+      if (c.provider === 'puter') return askPuter(c, messages);
+      const r = await fetch(`${(c.baseUrl || '').replace(/\/$/, '')}/chat/completions`, {
+        signal, method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(c.apiKey ? { Authorization: `Bearer ${c.apiKey}` } : {}) },
+        body: JSON.stringify({ model: c.model, messages, temperature: c.temperature })
+      });
+      if (!r.ok) throw new Error('HTTP Error: ' + r.status);
+      return (await r.json()).choices?.[0]?.message?.content || '';
+    }
+
+    function buildDiscMessages(a, topic, round, rounds) {
+      const c = a.char, others = disc.actors.filter((x) => x !== a).map((x) => x.char.name);
+      const sys = `你的名字是「${c.name}」。以下是你的角色設定（Persona），請始終以第一人稱、以此身份說話：
+${personaOf(c)}
+
+【情境】你正在與 ${others.join('、')} 以及使用者一起進行多人討論。
+討論話題：「${topic}」
+【發言規則】
+1. 使用繁體中文，維持角色的個性與說話風格。
+2. 每次發言 1～3 句、60 字以內，直接說出內容，只代表自己發言。
+3. 明確回應前一位發言者的觀點（同意、補充或禮貌地提出不同看法），並提出新的想法，讓討論往前推進。
+4. 可在句首放一個表情標籤：[開心] [難過] [生氣] [放鬆] [驚訝] [平靜]；需要手勢時可用 [動作:思考] [動作:揮手] [動作:舉手] 等。
+5. 使用者插話時，優先回應使用者的內容。`;
+      const log = disc.transcript.slice(-14).map((e) => `${e.name}：${e.text}`).join('\n');
+      let u = log ? `【目前的討論紀錄】\n${log}\n\n` : '';
+      u += disc.transcript.length ? `現在輪到你（${c.name}）發言，請接著上面的討論說下去。` : '你是第一位發言者，請針對話題開場並提出你的看法。';
+      if (disc.pendingUser) { u += '使用者剛剛插話了，請先回應使用者。'; disc.pendingUser = false; }
+      if (round === rounds - 1) u += '這是最後一輪，請簡短表達你的結論或最終立場。';
+      return [{ role: 'system', content: sys }, { role: 'user', content: u }];
+    }
+
+    function appendDiscMessage(a, text) {
+      const h = $('chat-history'), d = document.createElement('div');
+      d.className = 'flex gap-3 max-w-[85%]';
+      d.innerHTML = `<div class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold" style="background:${a.color}33;border:1px solid ${a.color}88;color:${a.color}">${escapeHTML([...a.char.name][0] || '?')}</div>
+        <div class="glass-card rounded-2xl rounded-tl-xs p-3.5 text-slate-200 leading-relaxed shadow-sm"><div class="text-[11px] font-semibold mb-1" style="color:${a.color}">${escapeHTML(a.char.name)}</div>${escapeHTML(text)}</div>`;
+      h.appendChild(d); h.scrollTop = h.scrollHeight;
+    }
+
+    // --- 8.5 討論主流程 ---
+    async function runDiscussion(topic, rounds, order) {
+      const token = ++disc.token;
+      disc.active = true; disc.transcript = []; disc.pendingUser = false; updateDiscUI();
+      appendChatMessage('system', `🗣 討論開始｜話題：${topic}｜參與者：${disc.actors.map((a) => a.char.name).join('、')}`);
+      let finished = false;
+      try {
+        outer: for (let r = 0; r < rounds; r++) {
+          const seq = disc.actors.slice();
+          if (order === 'random') for (let i = seq.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [seq[i], seq[j]] = [seq[j], seq[i]]; }
+          for (const a of seq) {
+            if (token !== disc.token) break outer;
+            $('typing-status-text').innerText = `${a.char.name} 思考中...`;
+            $('typing-indicator').classList.remove('hidden');
+            let reply;
+            try {
+              disc.abort = new AbortController();
+              reply = await askChar(a.char, buildDiscMessages(a, topic, r, rounds), disc.abort.signal);
+            } catch (e) {
+              if (token !== disc.token || e?.name === 'AbortError') break outer;
+              console.error('Discussion LLM error:', e);
+              appendChatMessage('system', `⚠ ${a.char.name} 無法回應（${errText(e)}），討論中斷。請檢查此角色的 LLM 設定。`);
+              break outer;
+            } finally { $('typing-indicator').classList.add('hidden'); }
+            if (token !== disc.token) break outer;
+            const { clean, actions } = extractActions(reply || '');
+            const text = clean.trim().replace(new RegExp('^\\s*[「\\[【]?' + escapeRe(a.char.name) + '[」\\]】]?\\s*[:：]\\s*'), '');
+            if (!text) continue;
+            disc.transcript.push({ name: a.char.name, text });
+            appendDiscMessage(a, text);
+            showCaption(`${a.char.name}：${speechText(text)}`);
+            disc.speaker = a; actorActions(a, actions);
+            await speakActor(a, text, token);
+            if (disc.speaker === a) disc.speaker = null;
+            if (token === disc.token) await sleep(350);
+          }
+        }
+        finished = token === disc.token;
+      } finally {
+        if (finished) {
+          disc.active = false; disc.speaker = null;
+          appendChatMessage('system', '✅ 討論結束');
+          updateDiscUI();
+        }
+      }
+    }
+
+    function stopDiscussion() {
+      disc.token++;
+      disc.abort?.abort();
+      state.speechSynth?.cancel(); disc.cancelSpeech?.();
+      disc.timers.forEach(clearTimeout); disc.timers = [];
+      const was = disc.active;
+      disc.active = false; disc.speaker = null;
+      disc.actors.forEach((a) => { a.speaking = false; a.pose = 'natural'; });
+      $('typing-indicator').classList.add('hidden'); $('caption').classList.add('hidden');
+      if (was) appendChatMessage('system', '⏹ 討論已停止');
+      updateDiscUI();
+    }
+
+    // --- 8.6 討論面板 UI ---
+    function loadDiscPrefs() { try { return JSON.parse(localStorage.getItem(DISC_KEY)) || {}; } catch { return {}; } }
+    function saveDiscPrefs(p) { try { localStorage.setItem(DISC_KEY, JSON.stringify(p)); } catch (e) { /* 略過 */ } }
+
+    function updateDiscUI() {
+      const on = disc.active || disc.busy;
+      $('disc-start-btn').disabled = on;
+      $('disc-stop-btn').disabled = !disc.active;
+      $('disc-exit-btn').classList.toggle('hidden', !disc.onStage);
+      $('disc-exit-btn').disabled = disc.busy;
+      $('open-disc-btn').classList.toggle('ring-2', on);
+      $('open-disc-btn').classList.toggle('ring-brand-500', on);
+      $('disc-status').textContent = disc.busy ? '載入角色中…' : disc.active ? '討論進行中…' : disc.onStage ? '舞台待命：可修改話題或角色後再次開始。' : '';
+    }
+
+    function refreshDiscChecks() {
+      const boxes = [...document.querySelectorAll('#disc-chars input')], chosen = boxes.filter((b) => b.checked);
+      $('disc-count').textContent = `已選 ${chosen.length}/${DISC_MAX}`;
+      const used = {}, dup = [];
+      chosen.forEach((b) => {
+        const c = roster.list.find((x) => x.id === b.value), k = c?.presetId;
+        if (used[k]) dup.push(c.name); else used[k] = c?.name;
+      });
+      const w = $('disc-warn');
+      w.classList.toggle('hidden', !dup.length);
+      if (dup.length) w.textContent = `⚠ 「${dup.join('、')}」與其他已選角色使用相同的 VRM 模型，外觀會一樣。可在設定中為各角色指定不同模型。`;
+    }
+
+    function renderDiscChars() {
+      const box = $('disc-chars'), prefs = loadDiscPrefs();
+      const saved = (prefs.ids || []).filter((id) => roster.list.some((c) => c.id === id));
+      const pick = new Set(saved.length >= 2 ? saved : roster.list.slice(0, 2).map((c) => c.id));
+      box.innerHTML = '';
+      roster.list.forEach((c) => {
+        const preset = VRM_PRESETS.find((m) => m.id === c.presetId);
+        const row = document.createElement('label');
+        row.className = 'flex items-center gap-2.5 glass-card rounded-xl px-3 py-2 text-xs text-slate-200 cursor-pointer';
+        row.innerHTML = `<input type="checkbox" value="${escapeHTML(c.id)}" class="accent-brand-500" ${pick.has(c.id) ? 'checked' : ''}>
+          <span class="font-semibold">${escapeHTML(c.name)}</span>
+          <span class="text-[10px] text-slate-400 ml-auto truncate">${escapeHTML(preset ? preset.name : c.presetId)}</span>`;
+        row.querySelector('input').onchange = (e) => {
+          if (e.target.checked && document.querySelectorAll('#disc-chars input:checked').length > DISC_MAX) {
+            e.target.checked = false; alert(`最多同時選擇 ${DISC_MAX} 位角色。`);
+          }
+          refreshDiscChecks();
+        };
+        box.appendChild(row);
+      });
+      refreshDiscChecks();
+    }
+
+    async function onDiscStart() {
+      if (disc.active || disc.busy) return;
+      const topic = $('disc-topic').value.trim();
+      const ids = [...document.querySelectorAll('#disc-chars input:checked')].map((x) => x.value);
+      if (!topic) return alert('請先輸入討論話題。');
+      if (ids.length < 2) return alert('請至少選擇 2 位角色。');
+      const chars = ids.map((id) => roster.list.find((c) => c.id === id)).filter(Boolean);
+      const rounds = parseInt($('disc-rounds').value, 10) || 3, order = $('disc-order').value;
+      saveDiscPrefs({ topic, ids, rounds, order });
+      $('disc-modal').classList.add('opacity-0', 'pointer-events-none');
+
+      state.speechToken++; state.speechSynth?.cancel(); state.isSpeaking = false;   // 停掉單人模式的朗讀
+      disc.busy = true; updateDiscUI();
+      try {
+        const same = disc.onStage && disc.actors.map((a) => a.char.id).join() === ids.join();
+        if (!same) await enterStage(chars);
+      } catch (e) {
+        disc.busy = false; updateDiscUI();
+        return alert('無法開始討論：' + errText(e));
+      }
+      disc.busy = false;
+      await runDiscussion(topic, rounds, order);
+    }
+
+    function setupDiscussionUI() {
+      const modal = $('disc-modal'), prefs = loadDiscPrefs();
+      if (prefs.topic) $('disc-topic').value = prefs.topic;
+      if (prefs.rounds) $('disc-rounds').value = String(prefs.rounds);
+      if (prefs.order) $('disc-order').value = prefs.order;
+      $('open-disc-btn').onclick = () => { renderDiscChars(); updateDiscUI(); modal.classList.remove('opacity-0', 'pointer-events-none'); };
+      $('close-disc-btn').onclick = () => modal.classList.add('opacity-0', 'pointer-events-none');
+      $('disc-start-btn').onclick = onDiscStart;
+      $('disc-stop-btn').onclick = stopDiscussion;
+      $('disc-exit-btn').onclick = () => {
+        stopDiscussion(); exitStage(true); updateDiscUI();
+        modal.classList.add('opacity-0', 'pointer-events-none');
+        appendChatMessage('system', '已返回單人模式');
+      };
+      updateDiscUI();
+    }
+
+    // =====================================================================
+    // 9. 錄影（移植自「錄聲音與影像的JS.js」）
+    //    以 getDisplayMedia 擷取畫面 + 分頁音訊，MediaRecorder 輸出 MP4（不支援時退回 WebM）
+    // =====================================================================
+    const rec = { recorder: null, chunks: [], stream: null, t0: 0, timer: null };
+    const REC_MIMES = ['video/mp4;codecs=h264', 'video/webm;codecs=h264', 'video/webm;codecs=vp9,opus', 'video/webm'];
+
+    function stopTracks(stream) { stream?.getTracks().forEach((t) => t.stop()); }
+
+    function paintRec(on) {
+      $('rec-icon').className = on ? 'fa-solid fa-stop text-lg text-red-500 animate-pulse' : 'fa-solid fa-circle text-lg text-red-400';
+      $('rec-label').textContent = on ? '00:00' : '錄影';
+      $('rec-btn').title = on ? '停止錄影並下載' : '錄製畫面與聲音';
+    }
+
+    async function startRecording() {
+      if (rec.recorder) return;
+      let stream;
+      try {
+        // 1. 同時要求影像與音訊（audio: true 才會出現「分享分頁音訊」選項）
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { width: 1920, height: 1080, frameRate: 30 },
+          audio: true,
+          preferCurrentTab: true, selfBrowserSurface: 'include'   // Chrome：預設選取目前分頁（其他瀏覽器會忽略）
+        });
+      } catch (err) {
+        console.error('啟動錄製失敗:', err);
+        if (err?.name !== 'NotAllowedError') alert('無法開始錄影：' + errText(err));
+        return;
+      }
+      // 2. 檢查使用者是否有勾選分享聲音
+      if (!stream.getAudioTracks().length) {
+        if (!confirm('沒有偵測到分頁音訊（開始時未勾選「分享分頁音訊」）。\n\n按「確定」＝只錄影像（沒有聲音）\n按「取消」＝放棄，請重新開始並勾選「分享分頁音訊」')) {
+          stopTracks(stream); return;
+        }
+      }
+      // 3. 優先 MP4 (H.264)，不支援時退回 WebM
+      const mime = REC_MIMES.find((m) => MediaRecorder.isTypeSupported(m)) || '';
+      try {
+        rec.recorder = mime ? new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000 }) : new MediaRecorder(stream);
+      } catch (e) { stopTracks(stream); return alert('此瀏覽器無法建立錄影器：' + errText(e)); }
+      const type = rec.recorder.mimeType || mime || 'video/webm', ext = /mp4/i.test(type) ? 'mp4' : 'webm';
+      rec.stream = stream; rec.chunks = [];
+
+      rec.recorder.ondataavailable = (e) => { if (e.data.size > 0) rec.chunks.push(e.data); };
+      // 4. 錄製結束時，自動導出檔案
+      rec.recorder.onstop = () => {
+        const blob = new Blob(rec.chunks, { type });
+        const url = URL.createObjectURL(blob), a = document.createElement('a');
+        a.href = url; a.download = `vtuber_video_${Date.now()}.${ext}`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        stopTracks(rec.stream);
+        clearInterval(rec.timer); rec.recorder = null; rec.stream = null; rec.chunks = [];
+        paintRec(false);
+      };
+      rec.recorder.onerror = (e) => { console.error('MediaRecorder error:', e); stopRecording(); };
+      // 使用者按瀏覽器的「停止共用」時，同步結束錄影
+      stream.getVideoTracks()[0].addEventListener('ended', stopRecording);
+
+      rec.recorder.start(1000);
+      rec.t0 = Date.now(); paintRec(true);
+      rec.timer = setInterval(() => {
+        const s = Math.floor((Date.now() - rec.t0) / 1000);
+        $('rec-label').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+      }, 500);
+      console.log('錄製已開始...', type);
+    }
+
+    function stopRecording() {
+      if (rec.recorder && rec.recorder.state !== 'inactive') rec.recorder.stop();
+    }
+
+    function setupRecorderUI() {
+      if (!navigator.mediaDevices?.getDisplayMedia || typeof MediaRecorder === 'undefined') {
+        $('rec-btn').classList.add('opacity-40');
+        $('rec-btn').onclick = () => alert('此瀏覽器不支援螢幕錄影（需要 getDisplayMedia 與 MediaRecorder）。建議使用桌面版 Chrome 或 Edge。');
+        return;
+      }
+      $('rec-btn').onclick = () => (rec.recorder ? stopRecording() : startRecording());
+    }
+
     // Initialize Application
     window.onload = () => {
       init3D();
       initSpeech();
       setupUIEvents();
       initCharacters(); // 載入角色存檔並載入其 VRM
+      setupDiscussionUI();
+      setupRecorderUI();
     };
   </script>
 </body>
