@@ -449,7 +449,14 @@
       isListening: false,
 
       // Chat history state
-      messages: []
+      messages: [],
+
+      // 角色位置（平滑移動）、動作計時器、姿勢 token
+      move: { x: 0, z: 0, tx: 0, tz: 0 },
+      actionTimers: [],
+      poseToken: 0,
+      speechToken: 0,
+      speechQueue: []
     };
 
     // --- 1. INITIALIZE THREE.JS 3D ENVIRONMENT ---
@@ -775,6 +782,7 @@
         btn.className = 'glass-card hover:bg-brand-600/30 hover:border-brand-500/50 p-2.5 rounded-xl text-left text-xs text-slate-200 transition';
         btn.innerHTML = `<div class="font-bold">${p.zh}</div><div class="text-[10px] text-slate-400">${p.d}</div>`;
         btn.onclick = () => {
+          state.poseToken++;
           window.applyVRMPose(p.id);
           const c = activeChar(); if (c) { c.pose = p.id; saveChars(); }
         };
@@ -840,6 +848,12 @@
         }
       }
 
+      {
+        const mv = state.move, k = Math.min(1, delta * 3);
+        mv.x += (mv.tx - mv.x) * k; mv.z += (mv.tz - mv.z) * k;
+        if (state.currentVRM) state.currentVRM.scene.position.set(mv.x, 0, mv.z);
+        else if (state.fallbackAvatar) { state.fallbackAvatar.group.position.x = mv.x; state.fallbackAvatar.group.position.z = mv.z; }
+      }
       if (stage.mode === 'stars') stage.group.rotation.y = time * 0.02;
       state.controls.update();
       state.renderer.render(state.scene, state.camera);
@@ -900,22 +914,48 @@
       }
     }
 
+    // 長句切成短段逐段朗讀：避免 Chrome 約 15 秒後中斷、語音物件被回收的已知問題
+    function splitSpeech(t, max = 90) {
+      const parts = t.match(/[^。！？!?；;\n，,、.]+[。！？!?；;\n，,、.]*/g) || [t];
+      const merged = []; let buf = '';
+      for (const p of parts) {
+        if (buf && (buf + p).length > max) { merged.push(buf); buf = p; } else buf += p;
+      }
+      if (buf.trim()) merged.push(buf);
+      const out = [];
+      merged.forEach((m) => { for (let i = 0; i < m.length; i += 120) out.push(m.slice(i, i + 120)); });
+      return out.map((x) => x.trim()).filter(Boolean);
+    }
+
     function speakText(text, c = activeChar()) {
-      if (!state.speechSynth) return;
-      state.speechSynth.cancel(); // Stop current speech
+      const synth = state.speechSynth;
+      if (!synth) return;
+      const token = ++state.speechToken;      // 新的朗讀會讓舊朗讀的回呼失效
+      synth.cancel();
+      const chunks = splitSpeech(speechText(text));
+      if (!chunks.length) { state.isSpeaking = false; return; }
 
-      const utterance = new SpeechSynthesisUtterance(text.replace(TAG_RE, ''));
       const voice = state.ttsVoices.find((v) => v.name === c.voiceName);
-      if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
-
-      utterance.rate = c.rate;
-      utterance.pitch = c.pitch;
-
-      utterance.onstart = () => { state.isSpeaking = true; };
-      utterance.onend = () => { state.isSpeaking = false; };
-      utterance.onerror = () => { state.isSpeaking = false; };
-
-      state.speechSynth.speak(utterance);
+      const last = chunks.length - 1;
+      // 存進 state，避免 utterance 被垃圾回收而中途無聲
+      state.speechQueue = chunks.map((t, i) => {
+        const u = new SpeechSynthesisUtterance(t);
+        if (voice) { u.voice = voice; u.lang = voice.lang; }
+        u.rate = c.rate; u.pitch = c.pitch;
+        u.onstart = () => { if (token === state.speechToken) state.isSpeaking = true; };
+        u.onend = () => { if (token === state.speechToken && i === last) state.isSpeaking = false; };
+        u.onerror = (e) => {
+          if (token !== state.speechToken) return;
+          if (e.error !== 'interrupted' && e.error !== 'canceled') console.warn('TTS 分段錯誤，略過此段：', e.error);
+          if (i === last) state.isSpeaking = false;
+        };
+        return u;
+      });
+      // cancel() 後稍等再 speak，Chrome 才不會吞掉第一段
+      setTimeout(() => {
+        if (token !== state.speechToken) return;
+        state.speechQueue.forEach((u) => synth.speak(u));
+      }, 60);
     }
 
     // --- 5.4 OUTFIT COLOR（衣服換色）---
@@ -1060,8 +1100,257 @@
 
     // --- 5.5 CHARACTER SYSTEM：每個角色擁有獨立 LLM / Persona / TTS / 對話紀錄 ---
     const LS_KEY = 'vrmchat.characters.v1';
-    const TAG_RE = /[\[【](happy|sad|angry|relaxed|neutral|開心|難過|生氣|放鬆|平靜)[\]】]/gi;
-    const EMO = { happy:'happy', 開心:'happy', sad:'sad', 難過:'sad', angry:'angry', 生氣:'angry', relaxed:'relaxed', 放鬆:'relaxed', neutral:'neutral', 平靜:'neutral' };
+    // --- 5.6 ACTION ENGINE：[標籤] / EMOJI / 使用者口語指令 → 表情・動作・場景・衣服・位置 ---
+    const mk = (o) => ({ ...o, key: [o.expr, o.pose, o.scene, o.bg, o.cloth].join('|') });
+
+    const EXPR_RULES = [
+      [/開心|高興|快樂|微笑|大笑|笑|喜悅|happy|joy/i, 'happy'],
+      [/難過|傷心|悲傷|哭|失落|沮喪|sad/i, 'sad'],
+      [/生氣|憤怒|發火|angry/i, 'angry'],
+      [/放鬆|安心|舒服|relax/i, 'relaxed'],
+      [/驚訝|驚喜|吃驚|震驚|surprise/i, 'surprised'],
+      [/平靜|冷靜|普通|neutral/i, 'neutral']
+    ];
+    const POSE_RULES = [
+      [/左手.{0,2}(揮|招)|waveL/i, 'waveL'],
+      [/揮手|招手|打招呼|waveR|wave/i, 'waveR'],
+      [/歡呼|萬歲|慶祝|雙手(舉高|向上)|舉高雙手|cheer/i, 'cheer'],
+      [/抱胸|雙手交叉|雙臂交叉|交叉|crossed/i, 'crossed'],
+      [/思考|沉思|想想|想一想|撐下巴|thinking/i, 'thinking'],
+      [/叉腰|hips/i, 'hips'],
+      [/背後|handsBack/i, 'handsBack'],
+      [/前伸|平舉|擁抱|抱抱|reach/i, 'reach'],
+      [/合十|祈禱|拜託|pray/i, 'pray'],
+      [/害羞|臉紅|shy/i, 'shy'],
+      [/舉手|發問|提問|raiseHand/i, 'raiseHand'],
+      [/鞠躬|致意|行禮|bow/i, 'bow'],
+      [/T[\s-]?pose|T字/i, 'tpose'],
+      [/自然(站|垂)|站好|放下.{0,2}手|恢復.{0,2}(動作|姿勢)|natural/i, 'natural']
+    ];
+    const SCENE_RULES = [
+      [/星空|星星|宇宙|夜空|銀河|stars/i, 'stars'],
+      [/舞台|格線|網格|演唱會|stage/i, 'stage'],
+      [/相機|鏡頭|攝影機|實景|camera/i, 'camera'],
+      [/全景|360|panorama/i, 'panorama'],
+      [/圖片|照片|image/i, 'image'],
+      [/預設|深色|原本|原來|還原|恢復|default/i, 'default']
+    ];
+    const SCENE_NAMES = { stars: '3D 星空', stage: '3D 舞台', camera: '手機相機', panorama: '360° 全景', image: '圖片背景', color: '純色背景', default: '預設背景' };
+    const matchPose = (s) => { for (const [re, id] of POSE_RULES) if (re.test(s)) return id; return null; };
+    const matchExpr = (s) => { for (const [re, id] of EXPR_RULES) if (re.test(s)) return id; return null; };
+    const poseName = (id) => POSES.find((p) => p.id === id)?.zh || id;
+
+    const COLOR_LIST = [
+      ['天藍', '#38bdf8'], ['淺藍', '#7dd3fc'], ['深藍', '#1e3a8a'], ['藏青', '#1e3a8a'], ['寶藍', '#2563eb'], ['藍', '#3b82f6'],
+      ['粉紅', '#f9a8d4'], ['桃紅', '#ec4899'], ['酒紅', '#9f1239'], ['深紅', '#991b1b'], ['紅', '#dc2626'],
+      ['橘', '#f97316'], ['橙', '#f97316'], ['黃', '#facc15'],
+      ['淺綠', '#86efac'], ['軍綠', '#4d7c0f'], ['深綠', '#166534'], ['綠', '#22c55e'],
+      ['青', '#14b8a6'], ['紫', '#a855f7'], ['粉', '#f9a8d4'], ['白', '#ffffff'], ['黑', '#1f2937'], ['灰', '#9ca3af'],
+      ['銀', '#d1d5db'], ['金', '#fbbf24'], ['咖啡', '#92400e'], ['棕', '#92400e'], ['米', '#fef3c7'],
+      ['red', '#dc2626'], ['blue', '#3b82f6'], ['green', '#22c55e'], ['yellow', '#facc15'], ['pink', '#f9a8d4'],
+      ['purple', '#a855f7'], ['white', '#ffffff'], ['black', '#1f2937'], ['orange', '#f97316']
+    ].sort((a, b) => b[0].length - a[0].length);
+    // 單字色名（紅/白/黑…）須帶「色」或接在「成/為/變/換/穿/改/染」後，避免誤判「明白」「黑暗」
+    function matchColor(s, lenient = false) {
+      const hx = s.match(/#([0-9a-f]{6})\b/i);
+      if (hx) return { name: '#' + hx[1], hex: '#' + hx[1].toLowerCase() };
+      for (const [name, hex] of COLOR_LIST) {
+        const en = /^[a-z]+$/i.test(name);
+        const re = en ? new RegExp(`\\b${name}\\b`, 'i')
+          : (name.length === 1 && !lenient) ? new RegExp(`${name}色|[成為變換穿改染]${name}(?=的|$|\\s)`)
+          : new RegExp(name);
+        if (re.test(s)) return { name: en ? name : name + '色', hex };
+      }
+      return null;
+    }
+
+    // EMOJI → 表情 / 動作
+    const EMOJI_MAP = new Map();
+    [
+      ['😊😄😁😆😃😀🥰😍😘😸🤩😉🙂☺😺😻💖❤💕', { expr: 'happy' }],
+      ['😢😭😞😔🥺😿😥😓☹🙁😟💔', { expr: 'sad' }],
+      ['😠😡🤬💢😤👿', { expr: 'angry' }],
+      ['😌😴😪🥱😇☕🍵', { expr: 'relaxed' }],
+      ['😮😲😱😯🙀😧', { expr: 'surprised' }],
+      ['😐😑😶', { expr: 'neutral' }],
+      ['😳🙈', { expr: 'happy', pose: 'shy' }],
+      ['👋🤚', { pose: 'waveR' }],
+      ['🙏', { pose: 'pray' }],
+      ['🎉🎊🙌🥳🙆', { expr: 'happy', pose: 'cheer' }],
+      ['🤔', { pose: 'thinking' }],
+      ['🙇', { pose: 'bow' }],
+      ['🙋', { pose: 'raiseHand' }],
+      ['🤗', { expr: 'happy', pose: 'reach' }],
+      ['💁😎💪', { pose: 'hips' }],
+      ['🙅😒', { pose: 'crossed' }]
+    ].forEach(([chars, a]) => [...chars.matchAll(/\p{Extended_Pictographic}/gu)].forEach((x) => EMOJI_MAP.set(x[0], mk(a))));
+    const ACTION_RE = new RegExp(
+      `[\\[【]([^\\]】\\n]{1,20})[\\]】]|(${[...EMOJI_MAP.keys()].join('|')})(?:[\\u{1F3FB}-\\u{1F3FF}])?\\uFE0F?(?:\\u200D[\\u2640\\u2642]\\uFE0F?)?`, 'gu');
+
+    // [標籤] → 動作物件；不認得的 [xxx]（如 [1]、[Error]）回傳 null，原樣保留
+    function tagToAction(raw) {
+      const s = raw.trim(); let m;
+      if ((m = s.match(/^(?:動作|姿勢|pose|action)\s*[:：]\s*(.+)$/i))) { const id = matchPose(m[1]); return id ? mk({ pose: id }) : null; }
+      if ((m = s.match(/^(?:場景|背景|scene|bg)\s*[:：]\s*(.+)$/i))) {
+        const sc = SCENE_RULES.find(([re]) => re.test(m[1]));
+        if (sc) return mk({ scene: sc[1] });
+        const col = matchColor(m[1], true);
+        return col ? mk({ scene: 'color', bg: col.hex }) : null;
+      }
+      if ((m = s.match(/^(?:衣服|服裝|衣物|outfit|clothes)\s*[:：]\s*(.+)$/i))) {
+        const col = matchColor(m[1], true);
+        return col ? mk({ cloth: col.hex, target: m[1] }) : null;
+      }
+      if (s.length <= 8) {
+        const ex = matchExpr(s), po = matchPose(s);
+        if (ex || po) return mk({ expr: ex, pose: po });
+      }
+      return null;
+    }
+    // 抽出（依出現順序）所有動作；[標籤] 從顯示文字移除，EMOJI 保留顯示
+    function extractActions(text) {
+      const acts = [];
+      const clean = String(text).replace(ACTION_RE, (all, tag, emo) => {
+        const a = tag != null ? tagToAction(tag) : EMOJI_MAP.get(emo);
+        if (!a) return all;
+        if (!acts.length || acts[acts.length - 1].key !== a.key) acts.push(a);
+        return tag != null ? '' : all;
+      }).replace(/[ \t]{2,}/g, ' ');
+      return { clean, actions: acts.slice(0, 6) };
+    }
+    const speechText = (t) => extractActions(t).clean
+      .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\u{1F3FB}-\u{1F3FF}]/gu, '').replace(/\s{2,}/g, ' ').trim();
+
+    // --- 動作執行 ---
+    function doPose(id, persist) {
+      window.applyVRMPose(id);
+      const token = ++state.poseToken;
+      if (persist) { const c = activeChar(); if (c) { c.pose = id; saveChars(); } }
+      else setTimeout(() => { if (token === state.poseToken) window.applyVRMPose(activeChar()?.pose || 'natural'); }, 5000);
+    }
+    function changeScene(mode, color) {
+      if ((mode === 'image' || mode === 'panorama') && !stage.image) return null;
+      stage.mode = mode; if (color) stage.color = color;
+      applyStage(); if (mode === 'camera') startCamera();
+      return SCENE_NAMES[mode];
+    }
+    const OUTFIT_TARGETS = [
+      [/鞋/, /shoe|boot|foot/i, '鞋子'],
+      [/裙|洋裝/, /skirt|dress|onepiece|bottom/i, '裙子／洋裝'],
+      [/褲/, /bottom|pant|short/i, '褲子'],
+      [/上衣|襯衫|T恤|外套|毛衣|短袖/, /top|jacket|coat|shirt|cloth/i, '上衣']
+    ];
+    function setOutfitColor(clause, hex) {
+      const c = activeChar();
+      if (!c || !state.currentVRM) return null;
+      c.outfit ||= {};
+      const names = [...vrmMaterials().keys()];
+      let label = '全部衣物', hit = null;
+      for (const [kw, mre, lab] of OUTFIT_TARGETS) {
+        if (!kw.test(clause)) continue;
+        const found = names.filter((n) => mre.test(n));
+        if (found.length) { hit = found; label = lab; break; }
+      }
+      if (hit) hit.forEach((n) => { c.outfit[n] = hex; });
+      else c.outfit = { __auto__: hex };
+      applyOutfit(); refreshOutfitUI(); saveChars();
+      return label;
+    }
+    function doAction(a) {
+      if (a.expr) window.setVRMExpression(a.expr);
+      if (a.pose) doPose(a.pose, false);
+      if (a.scene) changeScene(a.scene, a.bg);
+      if (a.cloth) setOutfitColor(a.target || '', a.cloth);
+    }
+    function runActions(actions) {
+      state.actionTimers.forEach(clearTimeout); state.actionTimers = [];
+      actions.forEach((a, i) => state.actionTimers.push(setTimeout(() => doAction(a), i * 1600)));
+    }
+
+    // --- 使用者口語指令（本地解析，不依賴 LLM；可一句多指令）---
+    const CLOTHES_RE = /衣服|衣物|服裝|上衣|襯衫|外套|制服|洋裝|裙|褲|鞋|T恤|短袖|毛衣/;
+    const CHANGE_RE = /換|變|改|染|穿|成|弄|調|試|請|幫/;
+    const MOVE_DIR = /左邊|右邊|左側|右側|往左|往右|向左|向右|中間|中央|靠近|走近|過來|前進|後退|退後|遠離|回到原/;
+    const MOVE_VERB = /走|移|站|往|向|退|靠|前進|後退|過來|遠離|回到|去/;
+    function parseUserCommands(text) {
+      const done = [];
+      const clauses = text.split(/[，,。；;！!？?\n]|然後|並且|而且|接著|同時|還有|以及/).map((x) => x.trim()).filter(Boolean);
+      for (const s of clauses) {
+        const hasClothes = CLOTHES_RE.test(s);
+        const hasScene = /場景|背景|舞台|環境|換景/.test(s) || /(去|到|來到|切換到).{0,4}(星空|舞台|宇宙)/.test(s);
+        const color = matchColor(s);
+
+        // 1) 衣服顏色
+        if (hasClothes && !hasScene && /還原|恢復|原本|原來|預設/.test(s) && !color) {
+          const c = activeChar(); c.outfit = {}; applyOutfit(); refreshOutfitUI(); saveChars();
+          done.push('衣服顏色已還原'); continue;
+        }
+        if (hasClothes && !hasScene && color && CHANGE_RE.test(s)) {
+          const lab = setOutfitColor(s, color.hex);
+          done.push(lab ? `${lab}→${color.name}` : `衣服換色（需先載入 VRM 模型）`); continue;
+        }
+        // 2) 場景（背景）
+        if (hasScene && /換|變|改|切|去|到|成|設|帶|轉|移|來/.test(s)) {
+          let mode = null, col = null;
+          for (const [re, m] of SCENE_RULES) if (re.test(s)) { mode = m; break; }
+          if (!mode && (col = color)) mode = 'color';
+          if (!mode && /純色/.test(s)) mode = 'color';
+          if (!mode) { const order = ['stars', 'stage', 'default']; mode = order[(order.indexOf(stage.mode) + 1) % order.length]; }
+          const lab = changeScene(mode, col?.hex);
+          done.push(lab ? `場景→${lab}` : `場景（${SCENE_NAMES[mode]}需先在設定上傳圖片）`); continue;
+        }
+        // 3) 角色移動
+        if (!hasScene && !hasClothes && MOVE_DIR.test(s) && MOVE_VERB.test(s) && !/手|腳|頭|眼/.test(s)) {
+          const mv = state.move; let lab = [];
+          if (/中間|中央|回到原/.test(s)) { mv.tx = 0; mv.tz = 0; lab.push('回到中間'); }
+          else {
+            if (/左/.test(s)) { mv.tx = -0.6; lab.push('左邊'); }
+            else if (/右/.test(s)) { mv.tx = 0.6; lab.push('右邊'); }
+            if (/靠近|走近|過來|前進/.test(s)) { mv.tz = Math.min(0.9, mv.tz + 0.4); lab.push('靠近鏡頭'); }
+            if (/後退|退後|遠離/.test(s)) { mv.tz = Math.max(-1.5, mv.tz - 0.5); lab.push('遠離鏡頭'); }
+          }
+          if (lab.length) { done.push(`移動→${lab.join('、')}`); continue; }
+        }
+        // 4) 動作
+        if (!/什麼|為什麼|怎麼|如何|意思/.test(s)) {
+          const id = matchPose(s);
+          if (id) { doPose(id, true); done.push(`動作→${poseName(id)}`); }
+        }
+        // 5) 表情
+        if (/表情|笑一|哭一|生氣一|驚訝一|裝|扮|露出|做出|變得|開心一點|難過一點|生氣一點/.test(s)) {
+          const ex = matchExpr(s);
+          if (ex) { window.setVRMExpression(ex); done.push(`表情→${ex}`); }
+        }
+      }
+      return done;
+    }
+
+    // --- Persona / System Prompt：確保「自我介紹」必引用角色設定 ---
+    const INTRO_RE = /介紹(一下)?(你|妳|您)?自己|自我介紹|你是誰|妳是誰|你叫什麼|妳叫什麼|你的名字|妳的名字|你是什麼|who are you|introduce yourself|tell me about yourself/i;
+    const personaOf = (c) => (c.systemPrompt || '').trim() || '友善、樂於助人的 AI 夥伴';
+    const plainPersona = (c) => personaOf(c).replace(/[\[【]([^\]】]*)[\]】]/g, '$1');
+    function buildSystemPrompt(c) {
+      return `你的名字是「${c.name}」。以下是你的角色設定（Persona），你必須始終以第一人稱、以此身份說話：
+${personaOf(c)}
+
+【自我介紹規則】當使用者請你介紹自己或問你是誰時，必須引用上述角色設定的內容（名字、個性、說話風格、特點）來回答，不得自稱通用 AI 或語言模型。
+【表情與動作】回覆中可使用方括號標籤，系統會自動轉成角色的表情或動作（標籤不會顯示給使用者）：
+表情：[開心] [難過] [生氣] [放鬆] [驚訝] [平靜]
+動作：[動作:揮手] [動作:鞠躬] [動作:歡呼] [動作:害羞] [動作:思考] [動作:叉腰] [動作:合十] [動作:舉手] [動作:雙手交叉] [動作:雙手前伸]
+也可使用 EMOJI（例如 😊😢😠😮👋🙏🎉🤔🙇），系統會對應成相應的表情或動作。
+場景與衣服標籤（[場景:星空]、[衣服:紅色]）只在使用者明確要求時才使用。
+請在情緒轉折處放入標籤，並一律使用繁體中文。`;
+    }
+    function localIntro(c) {
+      return `[開心]大家好，我是${c.name}！${plainPersona(c)}（目前無法連線到 LLM，這段自我介紹直接取自我的角色設定。）`;
+    }
+    function deliverReply(c, reply) {
+      const { clean, actions } = extractActions(reply);
+      appendChatMessage('assistant', clean.trim() || reply);
+      runActions(actions);
+      speakText(clean, c);
+    }
+
     const $ = (id) => document.getElementById(id);
     const roster = { list: [], activeId: null };
 
@@ -1154,12 +1443,12 @@
     function renderChat(c) {
       $('chat-history').innerHTML = '';
       appendChatMessage('assistant', `我是 ${c.name}，請多指教！`);
-      c.messages.forEach((m) => appendChatMessage(m.role, m.content.replace(TAG_RE, '').trim()));
+      c.messages.forEach((m) => appendChatMessage(m.role, extractActions(m.content).clean.trim()));
     }
     function switchChar(id) {
       roster.activeId = id;
       const c = activeChar();
-      state.speechSynth?.cancel(); state.isSpeaking = false;
+      state.speechToken++; state.speechSynth?.cancel(); state.isSpeaking = false;
       renderSelect(); fillForm(c); toggleProvider(c); renderChat(c); saveChars();
       loadPresetVRM(c.presetId);
     }
@@ -1207,10 +1496,21 @@
       const apiKey = c.apiKey;
       const model = c.model;
 
+      // (a) 本地解析口語指令：換動作 / 換場景 / 移動角色 / 衣服換色 / 表情
+      const cmdDone = parseUserCommands(message);
+      if (cmdDone.length) appendChatMessage('system', '✔ 已執行：' + cmdDone.join('、'));
+      // (b) 自我介紹：強制帶入角色設定
+      const introAsk = INTRO_RE.test(message);
+
       c.messages.push({ role: 'user', content: message });
+      const msgs = c.messages.slice(-40).map((m) => ({ ...m }));
+      const hints = [];
+      if (cmdDone.length) hints.push(`系統已替你執行：${cmdDone.join('、')}。請以角色口吻簡短回應，可搭配表情標籤。`);
+      if (introAsk) hints.push(`使用者要求你自我介紹。請以第一人稱、明確引用你的角色設定來介紹自己（名字：${c.name}；角色設定：${plainPersona(c)}），不要自稱通用 AI 模型。`);
+      if (hints.length) msgs[msgs.length - 1].content += `\n\n（系統提示：${hints.join(' ')}）`;
       const requestMessages = [
-        { role: 'system', content: c.systemPrompt },
-        ...c.messages.slice(-40)
+        { role: 'system', content: buildSystemPrompt(c) },
+        ...msgs
       ];
 
       try {
@@ -1241,17 +1541,17 @@
         c.messages.push({ role: 'assistant', content: assistantReply });
         saveChars();
 
-        if (c.id === roster.activeId) {
-          const tag = [...assistantReply.matchAll(TAG_RE)].pop();
-          if (tag) window.setVRMExpression(EMO[tag[1].toLowerCase()] || 'neutral');
-          appendChatMessage('assistant', assistantReply.replace(TAG_RE, '').trim());
-          speakText(assistantReply, c);
-        }
+        if (c.id === roster.activeId) deliverReply(c, assistantReply);
 
       } catch (err) {
         console.error("Chat API Error:", err);
         const errorMsg = `[Error] ${c.name} 無法連線至 LLM（${c.provider === 'puter' ? 'Puter AI' : c.baseUrl}）：${err.message}。請檢查此角色的 Base URL / API Key / Model。`;
         if (c.id === roster.activeId) appendChatMessage('assistant', errorMsg);
+        if (introAsk) { // LLM 離線時，自我介紹直接取自角色設定
+          const intro = localIntro(c);
+          c.messages.push({ role: 'assistant', content: intro }); saveChars();
+          if (c.id === roster.activeId) deliverReply(c, intro);
+        }
       } finally {
         typingEl.classList.add('hidden');
       }
@@ -1259,6 +1559,13 @@
 
     function appendChatMessage(role, text) {
       const history = document.getElementById('chat-history');
+      if (role === 'system') {
+        const chip = document.createElement('div');
+        chip.className = 'text-center text-[11px] text-emerald-300/90 py-0.5';
+        chip.textContent = text;
+        history.appendChild(chip); history.scrollTop = history.scrollHeight;
+        return;
+      }
       const msgDiv = document.createElement('div');
       msgDiv.className = `flex gap-3 max-w-[85%] ${role === 'user' ? 'ml-auto flex-row-reverse' : ''}`;
 
