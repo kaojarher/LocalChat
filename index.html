@@ -1393,7 +1393,7 @@
       }).replace(/[ \t]{2,}/g, ' ');
       return { clean, actions: acts.slice(0, 6) };
     }
-    const speechText = (t) => extractActions(t).clean
+    const speechText = (t) => extractActions(t).clean.replace(/[*＊]+/g, '')
       .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\u{1F3FB}-\u{1F3FF}]/gu, '').replace(/\s{2,}/g, ' ').trim();
 
     // --- 動作執行 ---
@@ -1523,6 +1523,18 @@ ${personaOf(c)}
       const { clean, actions } = extractActions(reply);
       appendChatMessage('assistant', clean.trim() || reply);
       showCaption(speechText(clean));
+      if (disc.onStage && !disc.active) {   // 討論舞台仍在：讓舞台上對應的角色動作與說話
+        const actor = disc.actors.find((x) => x.char.id === c.id);
+        if (actor) {
+          actions.forEach((a) => { if (a.scene) changeScene(a.scene, a.bg); });
+          actorActions(actor, actions);
+          disc.speaker = actor;
+          speakActor(actor, clean, disc.token).then(() => { if (disc.speaker === actor) disc.speaker = null; });
+          return;
+        }
+        exitStage(true); updateDiscUI();     // 此角色不在舞台上：返回單人模式
+        appendChatMessage('system', '此角色不在討論舞台上，已返回單人模式');
+      }
       runActions(actions);
       speakText(clean, c);
     }
@@ -2319,7 +2331,7 @@ ${personaOf(c)}
             } finally { $('typing-indicator').classList.add('hidden'); }
             if (token !== disc.token) break outer;
             const { clean, actions } = extractActions(reply || '');
-            const text = clean.trim().replace(new RegExp('^\\s*[「\\[【]?' + escapeRe(a.char.name) + '[」\\]】]?\\s*[:：]\\s*'), '');
+            const text = clean.replace(/[*＊]+/g, '').trim().replace(new RegExp('^\\s*[「\\[【]?' + escapeRe(a.char.name) + '[」\\]】]?\\s*[:：]\\s*'), '');
             if (!text) continue;
             disc.transcript.push({ name: a.char.name, text });
             appendDiscMessage(a, text);

@@ -1,0 +1,2553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Chat VRM Avatar</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Puter.js（免 API Key 的 AI） -->
+  <script src="https://js.puter.com/v2/"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Fonts (Inter & Outfit) -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            heading: ['Outfit', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f7ff',
+              100: '#e0effe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.5);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.8);
+    }
+
+    /* Glassmorphism Styles */
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+    }
+
+    .glass-card {
+      background: rgba(30, 41, 59, 0.5);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .glass-input {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #f8fafc;
+    }
+    .glass-input:focus {
+      border-color: #3b82f6;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+    }
+
+    /* Pulsing mic animation */
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+    .mic-active {
+      animation: pulse-ring 1.5s infinite;
+    }
+
+    /* Canvas full screen background */
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 0;
+      overflow: hidden;
+    }
+  </style>
+
+  <!-- Import Three.js and dependencies via ES Modules -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+        "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.1.2/lib/three-vrm.module.js"
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans h-screen w-screen overflow-hidden select-none dark">
+
+  <!-- 3D Canvas Background -->
+  <div id="bg-layer" class="fixed inset-0 z-0 pointer-events-none"><video id="bg-video" autoplay playsinline muted class="hidden absolute inset-0 w-full h-full object-cover"></video></div>
+  <div id="canvas-container"></div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-screen" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-md transition-opacity duration-500">
+    <div class="relative flex items-center justify-center mb-4">
+      <div class="w-16 h-16 border-4 border-brand-500/30 border-t-brand-500 rounded-full animate-spin"></div>
+      <i class="fa-solid fa-cube text-brand-500 text-xl absolute"></i>
+    </div>
+    <p id="loading-text" class="text-slate-300 font-medium text-sm tracking-wide">Initializing 3D VRM Engine...</p>
+  </div>
+
+  <!-- Main UI Container -->
+  <div class="relative z-10 h-full w-full flex flex-col justify-between p-4 md:p-6 pointer-events-none">
+
+    <!-- Top Navigation / Status Header -->
+    <header class="flex justify-between items-center w-full pointer-events-auto">
+      <div class="flex items-center gap-3 glass-panel px-4 py-2.5 rounded-2xl">
+        <div class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+        <div>
+          <h1 class="text-sm font-bold tracking-wider font-heading uppercase text-white flex items-center gap-2">
+            Local VRM Chat <span class="text-[10px] bg-brand-500/20 text-brand-500 px-2 py-0.5 rounded-full border border-brand-500/30">AI</span>
+          </h1>
+          <p id="avatar-status-text" class="text-xs text-slate-400">Default Avatar Active</p>
+        </div>
+      </div>
+
+      <!-- Action Controls -->
+      <div class="flex items-center gap-2">
+        <!-- Quick Expression Selector -->
+        <div class="hidden sm:flex glass-panel rounded-2xl p-1 gap-1">
+          <button onclick="window.setVRMExpression('neutral')" class="px-2.5 py-1.5 rounded-xl hover:bg-slate-800/60 text-xs transition text-slate-300" title="Neutral">😐</button>
+          <button onclick="window.setVRMExpression('happy')" class="px-2.5 py-1.5 rounded-xl hover:bg-slate-800/60 text-xs transition text-slate-300" title="Happy">😊</button>
+          <button onclick="window.setVRMExpression('angry')" class="px-2.5 py-1.5 rounded-xl hover:bg-slate-800/60 text-xs transition text-slate-300" title="Angry">😠</button>
+          <button onclick="window.setVRMExpression('sad')" class="px-2.5 py-1.5 rounded-xl hover:bg-slate-800/60 text-xs transition text-slate-300" title="Sad">😢</button>
+          <button onclick="window.setVRMExpression('relaxed')" class="px-2.5 py-1.5 rounded-xl hover:bg-slate-800/60 text-xs transition text-slate-300" title="Relaxed">😌</button>
+        </div>
+
+        <!-- Multi-role Discussion Button -->
+        <button id="open-disc-btn" class="glass-panel hover:bg-slate-800/80 p-3 rounded-2xl text-slate-200 transition-all duration-200 shadow-lg active:scale-95 flex items-center gap-2" title="多角色討論">
+          <i class="fa-solid fa-users text-lg text-brand-500"></i>
+          <span class="text-xs font-semibold hidden md:inline">討論</span>
+        </button>
+
+        <!-- Screen Recording Button -->
+        <button id="rec-btn" class="glass-panel hover:bg-slate-800/80 p-3 rounded-2xl text-slate-200 transition-all duration-200 shadow-lg active:scale-95 flex items-center gap-2" title="錄製畫面與聲音">
+          <i id="rec-icon" class="fa-solid fa-circle text-lg text-red-400"></i>
+          <span id="rec-label" class="text-xs font-semibold hidden md:inline">錄影</span>
+        </button>
+
+        <!-- Open Pose Selector Button -->
+        <button id="open-pose-btn" class="glass-panel hover:bg-slate-800/80 p-3 rounded-2xl text-slate-200 transition-all duration-200 shadow-lg active:scale-95 flex items-center gap-2" title="Pose Control">
+          <i class="fa-solid fa-person-dots-from-line text-lg text-brand-400"></i>
+          <span class="text-xs font-semibold hidden md:inline">Pose</span>
+        </button>
+
+        <!-- Open Settings Button -->
+        <button id="open-settings-btn" class="glass-panel hover:bg-slate-800/80 p-3 rounded-2xl text-slate-200 transition-all duration-200 shadow-lg active:scale-95" title="Settings">
+          <i class="fa-solid fa-gear text-lg"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Floating Compact Bottom Chat Box Container -->
+    <main class="w-full max-w-2xl mx-auto pointer-events-auto flex flex-col justify-end">
+      <div id="caption" class="hidden mb-2 mx-auto max-w-xl text-center text-sm md:text-base text-white bg-black/50 backdrop-blur px-4 py-2 rounded-2xl pointer-events-none"></div>
+      <div id="chat-card" class="w-full glass-panel rounded-3xl flex flex-col h-[280px] max-h-[35vh] shadow-2xl overflow-hidden border border-white/10 transition-all duration-300 relative">
+        
+        <!-- Minimise / Collapse Toggle Header Bar -->
+        <div class="px-4 py-1.5 bg-slate-900/80 border-b border-white/10 flex items-center justify-between cursor-pointer select-none" id="chat-toggle-bar">
+          <span class="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
+            <i class="fa-solid fa-comments text-brand-400"></i> Conversation Panel
+          </span>
+          <button id="collapse-chat-btn" class="text-slate-400 hover:text-white p-1 text-xs transition" title="Minimize Chat">
+            <i class="fa-solid fa-chevron-down" id="collapse-icon"></i>
+          </button>
+        </div>
+
+        <!-- Chat History List -->
+        <div id="chat-history" class="flex-1 p-3.5 overflow-y-auto space-y-3 text-sm">
+          <!-- Welcome Message -->
+          <div class="flex gap-3 max-w-[85%]">
+            <div class="w-7 h-7 rounded-full bg-brand-600/30 border border-brand-500/40 flex items-center justify-center text-brand-400 shrink-0 mt-0.5">
+              <i class="fa-solid fa-robot text-xs"></i>
+            </div>
+            <div class="glass-card rounded-2xl rounded-tl-xs p-3 text-slate-200 leading-relaxed text-xs shadow-sm">
+              Hello! I'm your interactive VRM AI assistant. Upload your custom `.vrm` model, configure your API keys, and enjoy fully unobstructed view of your avatar!
+            </div>
+          </div>
+        </div>
+
+        <!-- Typing Indicator -->
+        <div id="typing-indicator" class="hidden px-4 py-1.5 text-xs text-brand-400 flex items-center gap-2">
+          <span class="flex gap-1">
+            <span class="w-1.5 h-1.5 bg-brand-500 rounded-full animate-bounce"></span>
+            <span class="w-1.5 h-1.5 bg-brand-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+            <span class="w-1.5 h-1.5 bg-brand-500 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+          </span>
+          <span id="typing-status-text" class="text-[11px]">Thinking...</span>
+        </div>
+
+        <!-- Input Box Bar -->
+        <div class="p-2.5 bg-slate-900/80 border-t border-white/10 flex items-center gap-2 shrink-0">
+          <!-- STT Microphone Button -->
+          <button id="mic-btn" class="glass-input p-2.5 rounded-2xl hover:bg-slate-800 text-slate-300 transition-all shrink-0 active:scale-95" title="Speech Recognition (STT)">
+            <i class="fa-solid fa-microphone text-sm"></i>
+          </button>
+
+          <!-- Text Area Input -->
+          <textarea id="chat-input" rows="1" placeholder="Type a message..." class="glass-input flex-1 rounded-2xl py-2 px-3 text-xs resize-none max-h-20 focus:outline-none"></textarea>
+
+          <button id="mute-btn" class="glass-input p-2.5 rounded-2xl hover:bg-slate-800 text-slate-300 transition shrink-0 active:scale-95" title="語音開／關"><i class="fa-solid fa-volume-high text-sm"></i></button>
+          <button id="stop-btn" class="glass-input p-2.5 rounded-2xl hover:bg-slate-800 text-slate-300 transition shrink-0 active:scale-95" title="停止（中斷語音與回覆）"><i class="fa-solid fa-stop text-sm"></i></button>
+          <button id="clear-btn" class="glass-input p-2.5 rounded-2xl hover:bg-slate-800 text-slate-300 transition shrink-0 active:scale-95" title="清除此角色對話"><i class="fa-solid fa-trash-can text-sm"></i></button>
+          <!-- Send Button -->
+          <button id="send-btn" class="bg-brand-600 hover:bg-brand-500 text-white p-2.5 rounded-2xl transition-all shadow-md shrink-0 active:scale-95 disabled:opacity-50">
+            <i class="fa-solid fa-paper-plane text-sm"></i>
+          </button>
+        </div>
+
+      </div>
+    </main>
+
+  </div>
+
+  <!-- Settings Side Drawer Panel -->
+  <aside id="settings-drawer" class="fixed top-0 right-0 h-full w-full sm:w-[420px] glass-panel z-40 transform translate-x-full transition-transform duration-300 ease-in-out overflow-y-auto flex flex-col justify-between shadow-2xl border-l border-white/10">
+    <div class="p-6 space-y-6">
+      
+      <!-- Drawer Header -->
+      <div class="flex items-center justify-between border-b border-slate-700/60 pb-4">
+        <h2 class="text-lg font-bold font-heading text-white flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-brand-500"></i> Settings & Model
+        </h2>
+        <button id="close-settings-btn" class="text-slate-400 hover:text-white p-2 rounded-xl transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <!-- 0. Character Roster -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Characters（每個角色獨立 LLM / 人設 / 聲音 / 對話紀錄）</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          <div class="flex gap-2">
+            <select id="char-select" class="flex-1 text-xs py-2 px-2 rounded-xl bg-slate-900 text-slate-200 border border-white/10 focus:outline-none focus:border-brand-500"></select>
+            <button id="char-add-btn" class="px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-white/10 transition" title="新增角色"><i class="fa-solid fa-plus"></i></button>
+            <button id="char-del-btn" class="px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-white/10 transition" title="刪除角色"><i class="fa-solid fa-trash"></i></button>
+          </div>
+          <input type="text" id="char-name" placeholder="角色名稱" class="glass-input w-full rounded-xl px-3 py-2 text-xs">
+          <p class="text-[10px] text-slate-400">以下 VRM、LLM、Persona、TTS 設定皆屬於目前選取的角色，修改後自動儲存。</p>
+        </div>
+      </div>
+
+      <!-- 1. VRM Model Loader Section -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">VRM Model Settings</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          <p class="text-xs text-slate-300">Select or drop a `.vrm` 3D character file from your computer.</p>
+          <label class="flex flex-col items-center justify-center border-2 border-dashed border-slate-600/60 hover:border-brand-500 rounded-xl p-4 cursor-pointer transition bg-slate-900/40 group">
+            <i class="fa-solid fa-cloud-arrow-up text-2xl text-slate-400 group-hover:text-brand-500 mb-1 transition"></i>
+            <span class="text-xs text-slate-300 font-medium">Upload VRM File</span>
+            <input type="file" id="vrm-file-input" accept=".vrm" class="hidden">
+          </label>
+          <div class="space-y-2">
+            <label class="text-[11px] text-slate-400">Official / Open-License Sample Models</label>
+            <select id="vrm-preset-select" class="w-full text-xs py-2 px-2 rounded-xl bg-slate-900 text-slate-200 border border-white/10 focus:outline-none focus:border-brand-500"></select>
+            <p id="vrm-preset-info" class="text-[11px] leading-relaxed text-slate-400"></p>
+            <button id="load-official-vrm-btn" class="w-full text-xs py-2 rounded-xl bg-brand-500/20 hover:bg-brand-500/30 text-brand-500 transition border border-brand-500/30 disabled:opacity-50 disabled:cursor-not-allowed">
+              Load Selected Model
+            </button>
+          </div>
+          <button id="reset-vrm-btn" class="w-full text-xs py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition border border-white/5">
+            Reset to Procedural Avatar
+          </button>
+        </div>
+      </div>
+
+      <!-- Outfit Color -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Outfit Color（衣服顏色・依角色儲存）</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          <select id="outfit-target" class="glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900"></select>
+          <div class="flex items-center gap-2">
+            <input type="color" id="outfit-color" value="#ffffff" class="h-9 w-14 rounded-lg bg-transparent border border-white/15 cursor-pointer">
+            <button id="outfit-reset-btn" class="flex-1 text-xs py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/5 transition">還原原始顏色</button>
+          </div>
+          <p class="text-[10px] text-slate-400">「全部衣物」依材質名稱自動偵測（Tops / Bottoms / Shoes / Dress 等）；也可單選任一材質。顏色以乘色方式套用，原本越淺的衣服效果越明顯。</p>
+        </div>
+      </div>
+
+      <!-- Background / Stage -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Background / Stage（背景）</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          <select id="bg-mode" class="glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900">
+            <option value="default">預設（深色）</option>
+            <option value="color">純色</option>
+            <option value="image">上傳圖片（平面背景）</option>
+            <option value="panorama">上傳 360° 全景圖（three.js 3D 背景）</option>
+            <option value="stars">3D 星空粒子（three.js）</option>
+            <option value="stage">3D 舞台格線（three.js）</option>
+            <option value="camera">手機相機（即時影像）</option>
+          </select>
+          <select id="bg-facing" class="hidden glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900"><option value="environment">後置鏡頭</option><option value="user">前置鏡頭（鏡像）</option></select>
+          <input type="color" id="bg-color" value="#0f172a" class="hidden h-9 w-14 rounded-lg bg-transparent border border-white/15 cursor-pointer">
+          <div id="bg-file-row" class="hidden flex gap-2 items-center">
+            <label class="flex-1 text-center text-xs py-2 rounded-xl bg-brand-500/20 hover:bg-brand-500/30 text-brand-500 border border-brand-500/30 cursor-pointer transition">選擇圖片
+              <input type="file" id="bg-file" accept="image/*" class="hidden">
+            </label>
+            <button id="bg-clear-btn" class="px-3 py-2 text-xs rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/5">清除</button>
+          </div>
+          <p class="text-[10px] text-slate-400">全景圖需為 2:1 等距柱狀投影（equirectangular），拖曳旋轉鏡頭時背景會跟著轉動。</p>
+        </div>
+      </div>
+
+      <!-- 2. LLM API Endpoint Settings -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">LLM Provider Configuration</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          
+          <div>
+            <label class="text-xs text-slate-300 mb-1 block">AI Provider</label>
+            <select id="api-provider" class="glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900">
+              <option value="puter">Puter AI（免 API Key・新角色預設）</option>
+              <option value="openai">OpenAI 相容 API（Ollama / LM Studio / OpenAI…）</option>
+            </select>
+          </div>
+
+          <div id="openai-fields" class="space-y-3">
+          <div>
+            <label class="text-xs text-slate-300 mb-1 block">API Base URL</label>
+            <input type="text" id="api-base-url" value="http://localhost:11434/v1" placeholder="http://localhost:11434/v1 or https://api.openai.com/v1" class="glass-input w-full rounded-xl px-3 py-2 text-xs">
+            <span class="text-[10px] text-slate-400">Works with OpenAI, Ollama, LM Studio, VLLM, etc.</span>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-300 mb-1 block">API Key</label>
+            <input type="password" id="api-key" placeholder="sk-..." class="glass-input w-full rounded-xl px-3 py-2 text-xs">
+          </div>
+
+          </div>
+
+          <div id="puter-model-row" class="space-y-2">
+            <label class="text-xs text-slate-300 block">Puter 模型（留空＝Puter 官方預設）</label>
+            <div class="flex gap-2">
+              <select id="puter-model-select" class="flex-1 glass-input rounded-xl px-3 py-2 text-xs bg-slate-900"></select>
+              <button id="puter-refresh-btn" type="button" class="px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-white/10 transition disabled:opacity-50" title="從 Puter 載入可用模型清單"><i class="fa-solid fa-rotate"></i></button>
+            </div>
+            <p class="text-[10px] text-slate-400">Puter 免 API Key；首次對話會跳出 Puter 登入視窗（用量由使用者自己的 Puter 帳號負擔）。Temperature 使用模型預設值。</p>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-300 mb-1 block">Model Name</label>
+            <input type="text" id="api-model-name" value="hichu" placeholder="gpt-4o-mini, llama3, qwen2.5" class="glass-input w-full rounded-xl px-3 py-2 text-xs">
+          </div>
+
+          <div id="temp-row">
+            <label class="text-xs text-slate-300 mb-1 block">Temperature (0–2)</label>
+            <input type="number" id="api-temperature" min="0" max="2" step="0.1" value="0.7" class="glass-input w-full rounded-xl px-3 py-2 text-xs">
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 3. Character Persona Prompt -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">System Prompt / Persona</label>
+        <div class="glass-card p-4 rounded-2xl">
+          <textarea id="system-prompt" rows="3" class="glass-input w-full rounded-xl p-3 text-xs leading-relaxed" placeholder="Define how the AI persona should respond...">我是一位樂於助人、情感豐富且友善的AI動漫夥伴。我會在對話中加入諸如 [開心]、[難過]、[生氣]、[放鬆] 之類的情感標籤，以此觸發相應的面部表情！並持續用繁體中文回應</textarea>
+        </div>
+      </div>
+
+      <!-- 3.5 Long-term Memory -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Long-term Memory（長期記憶・依角色儲存）</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          <textarea id="mem-facts" rows="5" class="glass-input w-full rounded-xl p-3 text-xs leading-relaxed" placeholder="每行一條記憶（關於使用者的資訊、約定…），可直接編輯或新增"></textarea>
+          <textarea id="mem-summary" rows="3" class="glass-input w-full rounded-xl p-3 text-xs leading-relaxed" placeholder="先前對話摘要（自動整理，也可手動修改）"></textarea>
+          <label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" id="mem-auto" checked class="accent-brand-500"> 每 6 輪對話自動整理記憶（會額外呼叫一次 LLM）</label>
+          <button id="mem-clear-btn" class="w-full text-xs py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/5 transition">清除此角色的全部記憶</button>
+          <p class="text-[10px] text-slate-400">說「記住：我喜歡喝咖啡」可立即記下。記憶存在瀏覽器 localStorage，換瀏覽器或清除資料會消失。</p>
+        </div>
+      </div>
+
+      <!-- 4. Voice & Speech Settings -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Text-To-Speech (TTS)</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          <div>
+            <label class="text-xs text-slate-300 mb-1 block">Voice Selector</label>
+            <select id="tts-voice-select" class="glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900"></select>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-slate-300 flex justify-between mb-1">
+                <span>Speed / Rate</span>
+                <span id="tts-rate-val" class="text-brand-400">1.0</span>
+              </label>
+              <input type="range" id="tts-rate" min="0.5" max="2" step="0.1" value="1.0" class="w-full accent-brand-500">
+            </div>
+
+            <div>
+              <label class="text-xs text-slate-300 flex justify-between mb-1">
+                <span>Pitch</span>
+                <span id="tts-pitch-val" class="text-brand-400">1.1</span>
+              </label>
+              <input type="range" id="tts-pitch" min="0.5" max="2" step="0.1" value="1.1" class="w-full accent-brand-500">
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Drawer Footer -->
+    <div class="p-6 border-t border-slate-700/60 bg-slate-950/40">
+      <button id="save-settings-btn" class="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white font-semibold rounded-2xl transition shadow-lg text-sm">
+        Save & Apply Configuration
+      </button>
+    </div>
+  </aside>
+
+  <!-- Pose Selection Modal / Floating Menu -->
+  <div id="pose-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-300">
+    <div class="glass-panel w-full max-w-md rounded-3xl p-6 border border-white/10 shadow-2xl space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-700/60 pb-3">
+        <h3 class="text-base font-bold font-heading text-white flex items-center gap-2">
+          <i class="fa-solid fa-person-running text-brand-500"></i> 姿勢控制 (Avatar Pose)
+        </h3>
+        <button id="close-pose-btn" class="text-slate-400 hover:text-white p-1 rounded-xl transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-300">請選擇角色的姿勢動作 (Select Pose Preset)：</p>
+
+      <div id="pose-grid" class="grid grid-cols-2 gap-2 max-h-[55vh] overflow-y-auto pr-1"></div>
+    </div>
+  </div>
+
+  <!-- Multi-role Discussion Modal -->
+  <div id="disc-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-300">
+    <div class="glass-panel w-full max-w-lg rounded-3xl p-6 border border-white/10 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center border-b border-slate-700/60 pb-3">
+        <h3 class="text-base font-bold font-heading text-white flex items-center gap-2">
+          <i class="fa-solid fa-users text-brand-500"></i> 多角色討論
+        </h3>
+        <button id="close-disc-btn" class="text-slate-400 hover:text-white p-1 rounded-xl transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="space-y-1.5">
+        <label class="text-xs text-slate-300 font-semibold">討論話題</label>
+        <textarea id="disc-topic" rows="2" maxlength="200" class="glass-input w-full rounded-xl p-3 text-xs leading-relaxed" placeholder="例如：AI 會取代人類的創作嗎？"></textarea>
+      </div>
+
+      <div class="space-y-1.5">
+        <div class="flex justify-between items-center">
+          <label class="text-xs text-slate-300 font-semibold">參與角色（選 2～4 位）</label>
+          <span id="disc-count" class="text-[11px] text-brand-500"></span>
+        </div>
+        <div id="disc-chars" class="space-y-1.5 max-h-44 overflow-y-auto pr-1"></div>
+        <p id="disc-warn" class="hidden text-[11px] text-amber-300 leading-relaxed"></p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div class="space-y-1.5">
+          <label class="text-xs text-slate-300 font-semibold">討論回合數（每回合每人發言一次）</label>
+          <select id="disc-rounds" class="glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900">
+            <option value="1">1 回合</option><option value="2">2 回合</option><option value="3" selected>3 回合</option>
+            <option value="4">4 回合</option><option value="5">5 回合</option><option value="6">6 回合</option>
+            <option value="8">8 回合</option><option value="10">10 回合</option>
+          </select>
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-xs text-slate-300 font-semibold">發言順序</label>
+          <select id="disc-order" class="glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900">
+            <option value="seq">依序輪流</option><option value="random">每回合隨機</option>
+          </select>
+        </div>
+      </div>
+
+      <p class="text-[11px] text-slate-400 leading-relaxed">討論進行中，可在下方聊天框輸入文字插話，下一位角色會先回應你。討論內容不會寫入各角色的個人對話紀錄與長期記憶。</p>
+      <p id="disc-status" class="text-[11px] text-emerald-300 min-h-[1em]"></p>
+
+      <div class="flex gap-2">
+        <button id="disc-start-btn" class="flex-1 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-2xl transition disabled:opacity-40 disabled:cursor-not-allowed">
+          <i class="fa-solid fa-play mr-1"></i> 開始討論
+        </button>
+        <button id="disc-stop-btn" disabled class="flex-1 py-2.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-semibold rounded-2xl transition border border-red-500/30 disabled:opacity-40 disabled:cursor-not-allowed">
+          <i class="fa-solid fa-stop mr-1"></i> 停止討論
+        </button>
+      </div>
+      <button id="disc-exit-btn" class="hidden w-full py-2 text-xs rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition border border-white/5 disabled:opacity-40">
+        結束討論並返回單人模式
+      </button>
+    </div>
+  </div>
+
+  <!-- Application Logic JavaScript -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+    // Global App State
+    const state = {
+      scene: null,
+      camera: null,
+      renderer: null,
+      controls: null,
+      currentVRM: null,
+      isLoadingVRM: false,
+      fallbackAvatar: null,
+      clock: new THREE.Clock(),
+      activePose: 'natural',
+      
+      // Audio / Lip-sync & TTS
+      speechSynth: window.speechSynthesis,
+      ttsVoices: [],
+      isSpeaking: false,
+      visemeVal: 0,
+      
+      // STT Speech Recognition
+      recognition: null,
+      isListening: false,
+
+      // Chat history state
+      messages: [],
+
+      // 角色位置（平滑移動）、動作計時器、姿勢 token
+      move: { x: 0, z: 0, tx: 0, tz: 0 },
+      actionTimers: [],
+      poseToken: 0,
+      speechToken: 0,
+      speechQueue: [],
+      dt: 0.016, time: 0, reqId: 0, abort: null, muted: localStorage.getItem('vrmchat.muted') === '1',
+      lookTarget: new THREE.Object3D(), gaze: { x: 0, y: 0 }, gazeT: { x: 0, y: 0 },
+      exprTarget: 'neutral', exprTime: 0, exprCur: {}, poseCur: {},
+      blink: { on: false, next: 1.5, t0: 0 }, mouth: { v: 'aa', amp: 0, next: 0, cur: {} }
+    };
+
+    // --- 1. INITIALIZE THREE.JS 3D ENVIRONMENT ---
+    function init3D() {
+      const container = document.getElementById('canvas-container');
+
+      // Scene
+      state.scene = new THREE.Scene();
+
+      // Camera: Higher viewing angle and lifted focal center (so torso and waist are nicely framed in upper screen half)
+      state.camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 20.0);
+      state.camera.position.set(0.0, 1.15, 1.95);
+
+      // Renderer
+      state.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      state.renderer.setSize(window.innerWidth, window.innerHeight);
+      state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      state.renderer.outputEncoding = THREE.sRGBEncoding;
+      state.renderer.shadowMap.enabled = true;
+      container.appendChild(state.renderer.domElement);
+
+      // Orbit Controls: Focus slightly higher (y=1.1) to align face & upper torso in the upper 60% of viewport
+      state.controls = new OrbitControls(state.camera, state.renderer.domElement);
+      state.controls.target.set(0.0, 1.1, 0.0);
+      state.controls.enableDamping = true;
+      state.controls.maxPolarAngle = Math.PI / 2 + 0.1;
+      state.controls.minDistance = 0.5;
+      state.controls.maxDistance = 5.0;
+
+      // Lights
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
+      state.scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+      dirLight.position.set(1.0, 2.0, 1.0).normalize();
+      state.scene.add(dirLight);
+
+      const fillLight = new THREE.DirectionalLight(0x90e0ef, 0.5);
+      fillLight.position.set(-1.0, 0.5, -1.0).normalize();
+      state.scene.add(fillLight);
+
+      // Create Fallback Procedural Robot Avatar
+      createFallbackAvatar();
+
+      // Resize Listener
+      window.addEventListener('resize', onWindowResize);
+      state.scene.add(state.lookTarget);
+      window.addEventListener('pointermove', (e) => { state.gazeT.x = (e.clientX / innerWidth) * 2 - 1; state.gazeT.y = 1 - (e.clientY / innerHeight) * 2; });
+      document.addEventListener('pointerleave', () => { state.gazeT.x = 0; state.gazeT.y = 0; });
+
+      // Hide Loading Screen
+      document.getElementById('loading-screen').classList.add('opacity-0');
+      setTimeout(() => {
+        document.getElementById('loading-screen').classList.add('hidden');
+      }, 500);
+
+      // Start Render Loop
+      animate();
+    }
+
+    // --- 2. FALLBACK 3D PROCEDURAL AVATAR ---
+    function createFallbackAvatar() {
+      const group = new THREE.Group();
+      group.position.set(0, 1.0, 0);
+
+      // Head
+      const headGeo = new THREE.SphereGeometry(0.2, 32, 32);
+      const headMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.2, metalness: 0.8 });
+      const head = new THREE.Mesh(headGeo, headMat);
+      head.position.y = 0.35;
+      group.add(head);
+
+      // Eyes
+      const eyeGeo = new THREE.SphereGeometry(0.03, 16, 16);
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x60a5fa });
+      
+      const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+      leftEye.position.set(-0.07, 0.37, 0.17);
+      group.add(leftEye);
+
+      const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+      rightEye.position.set(0.07, 0.37, 0.17);
+      group.add(rightEye);
+
+      // Mouth mesh for lip sync simulation
+      const mouthGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.01, 16);
+      const mouthMat = new THREE.MeshBasicMaterial({ color: 0xf43f5e });
+      const mouth = new THREE.Mesh(mouthGeo, mouthMat);
+      mouth.rotation.x = Math.PI / 2;
+      mouth.position.set(0, 0.28, 0.18);
+      group.add(mouth);
+
+      // Body
+      const bodyGeo = new THREE.CylinderGeometry(0.12, 0.18, 0.45, 32);
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.position.y = 0;
+      group.add(body);
+
+      state.fallbackAvatar = { group, head, leftEye, rightEye, mouth };
+      state.scene.add(group);
+    }
+
+    // --- 3. VRM MODEL LOADING & HANDLING ---
+    // ---- 預設模型目錄（授權資訊已讀取各 VRM 檔頭 meta 驗證）----
+    // 每個模型有兩個來源：raw.githubusercontent.com（主要）與 jsDelivr GitHub CDN（備援）
+    const GH = (repo, branch, path) => [
+      `https://raw.githubusercontent.com/${repo}/${branch}/${path}`,
+      `https://cdn.jsdelivr.net/gh/${repo}@${branch}/${path}`
+    ];
+    const VROID_TERMS = 'VRoid 範例模型使用條件（可修改、散布，需遵守條款）';
+    const CC0_TERMS = 'CC0 公眾領域（無使用限制）';
+
+    const VRM_PRESETS = [
+      // --- ChatVRM 官方 ---
+      { id: 'chatvrm-b', group: 'ChatVRM 官方 (zoan37/ChatVRM)', name: 'AvatarSample_B（預設・最輕量）',
+        size: 6.7, ver: 'VRM 1.0', license: 'VRM 1.0 授權，允許再散布，免標註（VRoid Project / pixiv）',
+        urls: GH('zoan37/ChatVRM', 'main', 'public/AvatarSample_B.vrm') },
+
+      // --- VRoid Studio 官方範例 ---
+      { id: 'vroid-a', group: 'VRoid Studio 官方範例 (madjin/vrm-samples)', name: 'AvatarSample_A',
+        size: 15.1, ver: 'VRM 0.x', license: VROID_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/stable/AvatarSample_A.vrm') },
+      { id: 'vroid-b', group: 'VRoid Studio 官方範例 (madjin/vrm-samples)', name: 'AvatarSample_B（VRM 0.x 版）',
+        size: 15.4, ver: 'VRM 0.x', license: VROID_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/stable/AvatarSample_B.vrm') },
+      { id: 'vroid-c', group: 'VRoid Studio 官方範例 (madjin/vrm-samples)', name: 'AvatarSample_C',
+        size: 13.1, ver: 'VRM 0.x', license: VROID_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/stable/AvatarSample_C.vrm') },
+
+      // --- CC0 模型 ---
+      { id: 'orion', group: 'CC0 公眾領域模型', name: 'Orion（Polygonal Mind）',
+        size: 6.1, ver: 'VRM 0.x', license: CC0_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'Avatar_Orion.vrm') },
+      { id: 'vita', group: 'CC0 公眾領域模型', name: 'Vita',
+        size: 14.4, ver: 'VRM 0.x', license: CC0_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/beta/Vita.vrm') },
+      { id: 'vivi', group: 'CC0 公眾領域模型', name: 'Vivi',
+        size: 18.1, ver: 'VRM 0.x', license: CC0_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/beta/Vivi.vrm') },
+      { id: 'victoria', group: 'CC0 公眾領域模型', name: 'Victoria Rubin',
+        size: 15.5, ver: 'VRM 0.x', license: CC0_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/beta/Victoria_Rubin.vrm') },
+      { id: 'sakurada', group: 'CC0 公眾領域模型', name: 'Sakurada Fumiriya',
+        size: 19.3, ver: 'VRM 0.x', license: CC0_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/beta/Sakurada_Fumiriya.vrm') },
+      { id: 'shino', group: 'CC0 公眾領域模型', name: 'Sendagaya Shino',
+        size: 15.1, ver: 'VRM 0.x', license: CC0_TERMS,
+        urls: GH('madjin/vrm-samples', 'master', 'vroid/beta/Sendagaya_Shino.vrm') },
+
+      // --- 需標註作者 ---
+      { id: 'seed-san', group: '需標註作者', name: 'Seed-san（VirtualCast）',
+        size: 10.7, ver: 'VRM 1.0', license: 'VRM 1.0 授權，允許再散布；使用時「必須標註」作者：VirtualCast, Inc.',
+        urls: GH('madjin/vrm-samples', 'master', 'Seed-san/vrm/Seed-san.vrm') }
+    ];
+    const DEFAULT_PRESET_ID = 'chatvrm-b';
+
+    function populatePresetSelect() {
+      const sel = document.getElementById('vrm-preset-select');
+      const groups = {};
+      VRM_PRESETS.forEach((m) => {
+        if (!groups[m.group]) {
+          const og = document.createElement('optgroup');
+          og.label = m.group;
+          sel.appendChild(og);
+          groups[m.group] = og;
+        }
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = `${m.name} · ${m.size} MB`;
+        groups[m.group].appendChild(opt);
+      });
+      sel.value = DEFAULT_PRESET_ID;
+      updatePresetInfo();
+      sel.onchange = updatePresetInfo;
+    }
+
+    function updatePresetInfo() {
+      const m = VRM_PRESETS.find((x) => x.id === document.getElementById('vrm-preset-select').value);
+      if (m) {
+        document.getElementById('vrm-preset-info').innerText =
+          `${m.ver} · ${m.size} MB · ${m.license}`;
+      }
+    }
+
+    async function loadPresetVRM(id) {
+      const m = VRM_PRESETS.find((x) => x.id === id);
+      if (!m || state.isLoadingVRM) return;
+      state.isLoadingVRM = true;
+      const btn = document.getElementById('load-official-vrm-btn');
+      const sel = document.getElementById('vrm-preset-select');
+      btn.disabled = true; sel.disabled = true;
+      try {
+        for (const url of m.urls) {
+          try {
+            await loadVRMModel(url, `Loaded: ${m.name}`);
+            return;
+          } catch (e) {
+            console.warn('VRM source failed, trying next:', url, e);
+          }
+        }
+        document.getElementById('avatar-status-text').innerText = `Failed to load ${m.name}`;
+        alert(`無法載入「${m.name}」，請檢查網路連線後重試。`);
+      } finally {
+        state.isLoadingVRM = false;
+        btn.disabled = false; sel.disabled = false;
+      }
+    }
+
+    // 相容舊呼叫：啟動時載入預設模型
+    function loadOfficialVRM() { return loadPresetVRM(DEFAULT_PRESET_ID); }
+
+    function loadVRMModel(url, statusText = 'Custom VRM Loaded') {
+      return new Promise((resolve, reject) => {
+        _loadVRMModel(url, statusText, resolve, reject);
+      });
+    }
+
+    function _loadVRMModel(url, statusText, resolve, reject) {
+      document.getElementById('loading-screen').classList.remove('hidden');
+      document.getElementById('loading-screen').classList.remove('opacity-0');
+      document.getElementById('loading-text').innerText = 'Loading VRM Model...';
+
+      const loader = new GLTFLoader();
+      loader.register((parser) => new VRMLoaderPlugin(parser));
+
+      loader.load(
+        url,
+        (gltf) => {
+          const vrm = gltf.userData.vrm;
+
+          // Remove existing VRM or fallback avatar
+          if (state.currentVRM) {
+            VRMUtils.deepDispose(state.currentVRM.scene);
+            state.scene.remove(state.currentVRM.scene);
+          }
+          if (state.fallbackAvatar) {
+            state.fallbackAvatar.group.visible = false;
+          }
+
+          // Unrotate model if needed
+          VRMUtils.rotateVRM0(vrm);
+          state.scene.add(vrm.scene);
+          state.currentVRM = vrm;
+          if (vrm.lookAt) vrm.lookAt.target = state.lookTarget;
+
+          // Apply natural posture by default to fix T-pose arms
+          window.applyVRMPose(activeChar()?.pose || 'natural');
+          snapPoseCur(state.poseCur, state.activePose);   // 載入當下即套用姿態，避免 T-Pose 閃現
+          if (disc.onStage) vrm.scene.visible = false;     // 討論舞台進行中，單人模型保持隱藏
+          applyOutfit(); refreshOutfitUI();
+
+          // Adjust Camera target nicely at chest/waist focal point above chat box
+          state.controls.target.set(0.0, 1.15, 0.0);
+          state.camera.position.set(0.0, 1.15, 1.7);
+
+          document.getElementById('avatar-status-text').innerText = statusText;
+          document.getElementById('loading-screen').classList.add('opacity-0');
+          setTimeout(() => document.getElementById('loading-screen').classList.add('hidden'), 500);
+          resolve(vrm);
+        },
+        (progress) => {
+          if (progress.total) {
+            const percent = Math.round((progress.loaded / progress.total) * 100);
+            document.getElementById('loading-text').innerText = `Loading VRM: ${percent}%`;
+          } else {
+            document.getElementById('loading-text').innerText = `Loading VRM: ${(progress.loaded / 1048576).toFixed(1)} MB`;
+          }
+        },
+        (error) => {
+          console.error("VRM Load Error:", error);
+          document.getElementById('loading-screen').classList.add('opacity-0');
+          setTimeout(() => document.getElementById('loading-screen').classList.add('hidden'), 500);
+          reject(error);
+        }
+      );
+    }
+
+    // Expression Control Helper
+    window.setVRMExpression = function(name) { state.exprTarget = name || 'neutral'; state.exprTime = performance.now(); };
+
+    // 每幀：視線追蹤、表情漸變（9 秒後回中性）、自動眨眼、母音口型（說話時 aa/ih/ou/ee/oh 平滑切換）
+    function updateLiveliness(delta, time) {
+      const em = state.currentVRM.expressionManager, g = state.gaze, gt = state.gazeT, kg = Math.min(1, delta * 4);
+      g.x += (gt.x - g.x) * kg; g.y += (gt.y - g.y) * kg;
+      state.lookTarget.position.set(state.move.x + g.x * 0.9, 1.4 + g.y * 0.5, 1.5 + state.move.z);
+      if (!em) return;
+      if (state.exprTarget !== 'neutral' && !state.isSpeaking && performance.now() - state.exprTime > 9000) state.exprTarget = 'neutral';
+      const ke = Math.min(1, delta * 8);
+      ['happy', 'sad', 'angry', 'relaxed', 'surprised'].forEach((n) => {
+        const v = state.exprCur[n] ?? 0, t = state.exprTarget === n ? 1 : 0;
+        em.setValue(n, (state.exprCur[n] = v + (t - v) * ke));
+      });
+      const b = state.blink; let bv = 0;
+      if (!b.on && time > b.next) { b.on = true; b.t0 = time; }
+      if (b.on) { const p = (time - b.t0) / 0.18; if (p >= 1) { b.on = false; b.next = time + 2 + Math.random() * 4; } else bv = Math.sin(p * Math.PI); }
+      em.setValue('blink', bv);
+      const m = state.mouth, V = ['aa', 'ih', 'ou', 'ee', 'oh'];
+      if (state.isSpeaking && time > m.next) { m.v = V[(Math.random() * 5) | 0]; m.amp = 0.3 + Math.random() * 0.5; m.next = time + 0.08 + Math.random() * 0.1; }
+      V.forEach((n) => {
+        const t = state.isSpeaking && n === m.v ? m.amp : 0, c = m.cur[n] ?? 0;
+        em.setValue(n, (m.cur[n] = c + (t - c) * Math.min(1, delta * 18)));
+      });
+    }
+    function showCaption(text) {
+      const el = $('caption'); if (!el || !text) return;
+      el.textContent = text; el.classList.remove('hidden');
+      clearTimeout(state.capTimer); state.capTimer = setTimeout(() => el.classList.add('hidden'), Math.max(4000, text.length * 250));
+    }
+    function stopAll() {
+      state.reqId++; state.abort?.abort();
+      state.speechToken++; state.speechSynth?.cancel(); state.isSpeaking = false;
+      $('typing-indicator').classList.add('hidden'); $('caption').classList.add('hidden');
+      if (disc.active) stopDiscussion();
+    }
+
+    // Set Humanoid Pose Presets（14 種；數值為 [x,y,z] 弧度，VRM 1.0 座標，VRM 0.x 自動換算）
+    const DOWN = { leftUpperArm:[.1,0,-1.3], rightUpperArm:[.1,0,1.3], leftLowerArm:[0,0,-.15], rightLowerArm:[0,0,.15] };
+    const POSES = [
+      { id:'natural',   zh:'自然垂放', d:'雙手自然垂在兩側', b:{ ...DOWN } },
+      { id:'tpose',     zh:'T-Pose',   d:'標準 T 字姿勢', b:{} },
+      { id:'waveR',     zh:'右手揮手', d:'右手舉高打招呼', b:{ ...DOWN, rightUpperArm:[0,0,-.9], rightLowerArm:[0,0,-.7] } },
+      { id:'waveL',     zh:'左手揮手', d:'左手舉高打招呼', b:{ ...DOWN, leftUpperArm:[0,0,.9], leftLowerArm:[0,0,.7] } },
+      { id:'cheer',     zh:'雙手歡呼', d:'雙手向上舉高', b:{ leftUpperArm:[0,0,1.35], rightUpperArm:[0,0,-1.35], head:[-.15,0,0] } },
+      { id:'crossed',   zh:'雙手交叉', d:'雙臂交叉於胸前', b:{ leftUpperArm:[-.7,-1,-1.9], rightUpperArm:[-.6,1,1.9], leftLowerArm:[0,-1.3,-.25], rightLowerArm:[0,1.3,.25] } },
+      { id:'thinking',  zh:'思考',     d:'右手撐下巴沉思', b:{ ...DOWN, rightUpperArm:[.6,-.3,.8], rightLowerArm:[0,0,1.8], head:[.1,.15,.1] } },
+      { id:'hips',      zh:'叉腰',     d:'雙手叉腰', b:{ leftUpperArm:[0,0,-.8], rightUpperArm:[0,0,.8], leftLowerArm:[0,0,-1.2], rightLowerArm:[0,0,1.2] } },
+      { id:'handsBack', zh:'雙手背後', d:'雙手交握在背後', b:{ leftUpperArm:[0,.6,-1.25], rightUpperArm:[0,-.6,1.25], leftLowerArm:[0,.6,-.15], rightLowerArm:[0,-.6,.15] } },
+      { id:'reach',     zh:'雙手前伸', d:'雙臂向前平舉', b:{ leftUpperArm:[0,-1.5,0], rightUpperArm:[0,1.5,0] } },
+      { id:'pray',      zh:'合十祈禱', d:'雙手於胸前合十', b:{ leftUpperArm:[0,-.4,-1.1], rightUpperArm:[0,.4,1.1], leftLowerArm:[0,-1.9,0], rightLowerArm:[0,1.9,0], head:[.1,0,0] } },
+      { id:'shy',       zh:'害羞',     d:'雙手在身前、微低頭歪頭', b:{ leftUpperArm:[0,-.25,-1.25], rightUpperArm:[0,.25,1.25], leftLowerArm:[0,-1,0], rightLowerArm:[0,1,0], head:[.25,0,.12] } },
+      { id:'raiseHand', zh:'舉手發問', d:'右手高舉', b:{ ...DOWN, rightUpperArm:[0,0,-1.45], rightLowerArm:[0,0,-.1] } },
+      { id:'bow',       zh:'鞠躬',     d:'身體前傾致意', b:{ ...DOWN, spine:[.45,0,0], head:[.2,0,0] } }
+    ];
+    const POSE_BONES = ['leftShoulder','rightShoulder','leftUpperArm','rightUpperArm','leftLowerArm','rightLowerArm','leftHand','rightHand','spine','chest','neck','head'];
+
+    window.applyVRMPose = function(id) {
+      state.activePose = POSES.some((p) => p.id === id) ? id : 'natural';
+      document.querySelectorAll('#pose-grid [data-pose]').forEach((btn) => {
+        const on = btn.dataset.pose === state.activePose;
+        btn.classList.toggle('border-brand-500/80', on);
+        btn.classList.toggle('bg-brand-500/10', on);
+      });
+      updateVRMBonePose();
+    };
+
+    function buildPoseGrid() {
+      const grid = document.getElementById('pose-grid');
+      POSES.forEach((p) => {
+        const btn = document.createElement('button');
+        btn.dataset.pose = p.id;
+        btn.className = 'glass-card hover:bg-brand-600/30 hover:border-brand-500/50 p-2.5 rounded-xl text-left text-xs text-slate-200 transition';
+        btn.innerHTML = `<div class="font-bold">${p.zh}</div><div class="text-[10px] text-slate-400">${p.d}</div>`;
+        btn.onclick = () => {
+          state.poseToken++;
+          window.applyVRMPose(p.id);
+          const c = activeChar(); if (c) { c.pose = p.id; saveChars(); }
+        };
+        grid.appendChild(btn);
+      });
+      window.applyVRMPose(state.activePose);
+    }
+
+    function updateVRMBonePose() {
+      const vrm = state.currentVRM;
+      if (!vrm || !vrm.humanoid) return;
+      const h = vrm.humanoid;
+      const get = (n) => h.getNormalizedBoneNode(n) || h.getRawBoneNode(n);
+      // VRM 0.x 骨架軸向與 1.0 相反：X、Z 軸旋轉取負，Y 不變
+      const isV0 = vrm.meta?.metaVersion === '0';
+      const pose = POSES.find((p) => p.id === state.activePose) || POSES[0];
+      const k = Math.min(1, state.dt * 6), g = state.gaze;
+      POSE_BONES.forEach((n) => {
+        const t = pose.b[n] || [0, 0, 0], cur = (state.poseCur[n] ??= [0, 0, 0]);
+        for (let i = 0; i < 3; i++) cur[i] += (t[i] - cur[i]) * k;   // 平滑過渡
+        let [x, y, z] = cur;
+        const f = n === 'head' ? 1 : n === 'neck' ? 0.5 : 0;           // 頭／頸跟隨視線，說話時輕微點頭
+        if (f) { x += f * (-g.y * 0.12 + (state.isSpeaking ? Math.sin(state.time * 5) * 0.03 : 0)); y += f * g.x * 0.25; }
+        get(n)?.rotation.set(isV0 ? -x : x, y, isV0 ? -z : z);
+      });
+      vrm.scene.updateMatrixWorld(true);
+    }
+
+    // --- 4. ANIMATION LOOP & IDLE BREATHING ---
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = state.clock.getDelta();
+      const time = state.clock.getElapsedTime();
+      state.dt = delta; state.time = time;
+
+      // VRM Update Cycle
+      if (state.currentVRM) {
+        // vrm.update() resets internal bone transforms, so re-apply pose afterwards
+        state.currentVRM.update(delta);
+        updateVRMBonePose();
+
+        // Natural sway / breathing animation
+        if (state.currentVRM.humanoid) {
+          const spine = state.currentVRM.humanoid.getNormalizedBoneNode('spine');
+          if (spine) {
+            spine.rotation.z += Math.sin(time * 1.5) * 0.015;
+            spine.rotation.x += Math.cos(time * 1.2) * 0.015;
+          }
+        }
+
+        updateLiveliness(delta, time);
+      } 
+      // Fallback Avatar Animation
+      else if (state.fallbackAvatar && state.fallbackAvatar.group.visible) {
+        state.fallbackAvatar.group.position.y = 1.0 + Math.sin(time * 2) * 0.03;
+        state.fallbackAvatar.head.rotation.y = Math.sin(time * 1.2) * 0.1;
+
+        if (state.isSpeaking) {
+          const mouthScale = 1.0 + Math.sin(time * 30) * 1.5;
+          state.fallbackAvatar.mouth.scale.set(mouthScale, 1, mouthScale);
+        } else {
+          state.fallbackAvatar.mouth.scale.set(1, 1, 1);
+        }
+      }
+
+      {
+        const mv = state.move, k = Math.min(1, delta * 3);
+        mv.x += (mv.tx - mv.x) * k; mv.z += (mv.tz - mv.z) * k;
+        if (state.currentVRM) state.currentVRM.scene.position.set(mv.x, 0, mv.z);
+        else if (state.fallbackAvatar) { state.fallbackAvatar.group.position.x = mv.x; state.fallbackAvatar.group.position.z = mv.z; }
+      }
+      updateActors(delta, time);
+      if (stage.mode === 'stars') stage.group.rotation.y = time * 0.02;
+      state.controls.update();
+      state.renderer.render(state.scene, state.camera);
+    }
+
+    function onWindowResize() {
+      state.camera.aspect = window.innerWidth / window.innerHeight;
+      state.camera.updateProjectionMatrix();
+      state.renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // --- 5. TEXT-TO-SPEECH (TTS) & STT ---
+    function initSpeech() {
+      // Load Web Speech Voices
+      const populateVoices = () => {
+        state.ttsVoices = state.speechSynth.getVoices();
+        const select = document.getElementById('tts-voice-select');
+        select.innerHTML = '';
+        
+        state.ttsVoices.forEach((voice, i) => {
+          const option = document.createElement('option');
+          option.value = i;
+          option.textContent = `${voice.name} (${voice.lang})`;
+          if (voice.default || voice.lang.includes('en')) option.selected = true;
+          select.appendChild(option);
+        });
+        applyCharVoice();
+      };
+
+      populateVoices();
+      if (speechSynthesis.onvoiceschanged !== undefined) {
+        speechSynthesis.onvoiceschanged = populateVoices;
+      }
+
+      // STT Speech Recognition Setup
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        state.recognition = new SpeechRecognition();
+        state.recognition.continuous = false;
+        state.recognition.interimResults = false;
+        state.recognition.lang = (state.ttsVoices.find((v) => v.name === activeChar()?.voiceName)?.lang) || 'zh-TW';
+
+        state.recognition.onstart = () => {
+          state.isListening = true;
+          document.getElementById('mic-btn').classList.add('bg-red-500/30', 'text-red-400', 'mic-active');
+        };
+
+        state.recognition.onresult = (e) => {
+          const transcript = e.results[0][0].transcript;
+          document.getElementById('chat-input').value = transcript;
+          handleSendMessage();   // 辨識完自動送出
+        };
+
+        state.recognition.onend = () => {
+          state.isListening = false;
+          document.getElementById('mic-btn').classList.remove('bg-red-500/30', 'text-red-400', 'mic-active');
+        };
+      } else {
+        document.getElementById('mic-btn').title = "STT is not supported in this browser.";
+      }
+    }
+
+    // 長句切成短段逐段朗讀：避免 Chrome 約 15 秒後中斷、語音物件被回收的已知問題
+    // 切成短句：Chrome 的網路語音（如 Google 國語）單段超過約 15 秒會被截斷，中文每段約 36 字以內較穩
+    function splitSpeech(t, max = 90) {
+      const parts = t.match(/[^。！？!?；;\n，,、.]+[。！？!?；;\n，,、.]*/g) || [t];
+      const merged = []; let buf = '';
+      for (const p of parts) {
+        if (buf && (buf + p).length > max) { merged.push(buf); buf = p; } else buf += p;
+      }
+      if (buf.trim()) merged.push(buf);
+      const out = [], cut = Math.max(max, 30);
+      merged.forEach((m) => { for (let i = 0; i < m.length; i += cut) out.push(m.slice(i, i + cut)); });
+      return out.map((x) => x.trim()).filter(Boolean);
+    }
+
+    // 逐段朗讀：前一段 onend 才送出下一段；單段錯誤重試一次、無回應則逾時略過，不會整串中斷
+    function speakSequential(plain, c, alive) {
+      return new Promise((resolve) => {
+        const synth = state.speechSynth;
+        const zh = /[\u3040-\u30ff\u4e00-\u9fff]/.test(plain);
+        const chunks = splitSpeech(plain, zh ? 36 : 90);
+        const voice = state.ttsVoices.find((v) => v.name === c.voiceName);
+        let i = 0, done = false;
+        // 保活：朗讀期間每 5 秒 pause()/resume() 一次，重設 Chrome 語音引擎的內部計時器（防止約 15 秒自動斷音）
+        const keep = setInterval(() => {
+          try { if (synth.speaking && !synth.paused) { synth.pause(); synth.resume(); } } catch (e) { /* 略過 */ }
+        }, 5000);
+        const end = () => { if (!done) { done = true; clearInterval(keep); resolve(); } };
+        const next = (retry = 0) => {
+          if (done) return;
+          if (!alive() || i >= chunks.length) return end();
+          const u = new SpeechSynthesisUtterance(chunks[i]);
+          if (voice) { u.voice = voice; u.lang = voice.lang; }
+          u.rate = c.rate; u.pitch = c.pitch;
+          state.curUtter = u;                          // 持有參照，避免被垃圾回收而中途無聲
+          let fired = false, started = false, poll = null, cap = null;
+          const t0 = Date.now();
+          const clear = () => { clearInterval(poll); clearTimeout(cap); };
+          const adv = () => { if (fired) return; fired = true; clear(); i++; next(); };
+          u.onstart = () => { started = true; };
+          u.onend = adv;
+          u.onerror = (e) => {
+            if (fired) return;
+            if (!alive() || e.error === 'interrupted' || e.error === 'canceled') { fired = true; clear(); return end(); }
+            console.warn('TTS 分段錯誤：', e.error, retry ? '（略過）' : '（重試）');
+            fired = true; clear();
+            if (retry < 1) { synth.cancel(); setTimeout(() => next(retry + 1), 150); } else { i++; next(); }
+          };
+          // 以引擎實際狀態判斷（部分語音不會觸發 onstart/onend）
+          poll = setInterval(() => {
+            if (fired) return;
+            if (!alive()) { fired = true; clear(); synth.cancel(); return end(); }
+            if (synth.speaking || synth.pending) { started = true; return; }
+            if (started) { console.warn('TTS：未收到結束事件，依引擎狀態視為已播完'); return adv(); }
+            if (Date.now() - t0 > 3000) {                // 3 秒仍未開始：引擎沒有反應
+              fired = true; clear();
+              console.warn('TTS：引擎未開始朗讀', retry ? '（略過此段）' : '（重試）');
+              synth.cancel(); synth.resume();
+              if (retry < 1) setTimeout(() => next(retry + 1), 200); else { i++; setTimeout(next, 100); }
+            }
+          }, 250);
+          // 硬上限：引擎卡住時強制略過
+          cap = setTimeout(() => {
+            if (fired) return; fired = true; clear();
+            console.warn('TTS 逾時（引擎一直處於朗讀中），強制略過此段');
+            synth.cancel(); i++; setTimeout(next, 200);
+          }, (u.text.length * 600) / Math.max(0.5, c.rate || 1) + 8000);
+          if (synth.paused) synth.resume();
+          synth.speak(u);
+        };
+        synth.cancel();
+        setTimeout(next, 80);                          // cancel() 後稍等再 speak，Chrome 才不會吞掉第一段
+      });
+    }
+
+    function speakText(text, c = activeChar()) {
+      const synth = state.speechSynth;
+      if (!synth) return;
+      const token = ++state.speechToken;      // 新的朗讀會讓舊朗讀失效
+      synth.cancel();
+      const plain = speechText(text);
+      if (state.muted || !plain) { state.isSpeaking = false; return; }
+      state.isSpeaking = true;
+      speakSequential(plain, c, () => token === state.speechToken)
+        .then(() => { if (token === state.speechToken) state.isSpeaking = false; });
+    }
+
+    // --- 5.4 OUTFIT COLOR（衣服換色）---
+    const CLOTH_RE = /cloth|tops|bottom|shoe|dress|skirt|onepiece|jacket|coat|uniform/i;
+    function vrmMaterials() {
+      const map = new Map();
+      state.currentVRM?.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        [].concat(o.material).forEach((m) => {
+          if (!m || !m.name) return;
+          if (!map.has(m.name)) map.set(m.name, []);
+          map.get(m.name).push(m);
+        });
+      });
+      return map;
+    }
+    function applyOutfit() {
+      const o = activeChar()?.outfit || {};
+      vrmMaterials().forEach((mats, name) => mats.forEach((m) => {
+        if (!m.color) return;
+        m.userData.orig ??= { c: m.color.getHex(), s: m.shadeColorFactor?.getHex() };
+        const hex = o[name] ?? (CLOTH_RE.test(name) ? o.__auto__ : undefined);
+        if (hex) {
+          m.color.set(hex);
+          m.shadeColorFactor?.set(hex).multiplyScalar(0.7);
+        } else {
+          m.color.setHex(m.userData.orig.c);
+          if (m.userData.orig.s !== undefined) m.shadeColorFactor.setHex(m.userData.orig.s);
+        }
+      }));
+    }
+    function refreshOutfitUI() {
+      const sel = $('outfit-target'), prev = sel.value;
+      sel.innerHTML = '<option value="__auto__">全部衣物（自動偵測）</option>';
+      vrmMaterials().forEach((_, name) => {
+        const op = document.createElement('option'); op.value = name; op.textContent = name; sel.appendChild(op);
+      });
+      if ([...sel.options].some((x) => x.value === prev)) sel.value = prev;
+      $('outfit-color').value = activeChar()?.outfit?.[sel.value] || '#ffffff';
+    }
+
+    // --- 5.45 BACKGROUND / STAGE（背景：CSS 圖片/純色 + three.js 3D）---
+    const STAGE_KEY = 'vrmchat.stage.v1';
+    const stage = { mode: 'default', color: '#0f172a', image: null, group: new THREE.Group(), stream: null, facing: 'environment' };
+    function saveStage() {
+      try { localStorage.setItem(STAGE_KEY, JSON.stringify({ mode: stage.mode, color: stage.color, image: stage.image })); }
+      catch (e) { console.warn('背景圖過大，未寫入儲存空間（本次仍有效）', e); }
+    }
+    function fileToDataURL(file, max = 1920) {
+      return new Promise((resolve, reject) => {
+        const img = new Image(), u = URL.createObjectURL(file);
+        img.onload = () => {
+          const s = Math.min(1, max / Math.max(img.width, img.height));
+          const cv = document.createElement('canvas');
+          cv.width = Math.round(img.width * s); cv.height = Math.round(img.height * s);
+          cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+          URL.revokeObjectURL(u); resolve(cv.toDataURL('image/jpeg', 0.85));
+        };
+        img.onerror = reject; img.src = u;
+      });
+    }
+    function applyStage() {
+      const bg = $('bg-layer'), s = stage;
+      state.scene.background?.dispose?.(); state.scene.background = null;
+      s.group.children.forEach((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+      s.group.clear(); s.group.rotation.set(0, 0, 0);
+      bg.style.background = '';
+      if (s.mode !== 'camera') stopCamera();
+
+      if (s.mode === 'color') bg.style.background = s.color;
+      else if (s.mode === 'image' && s.image) bg.style.background = `center / cover no-repeat url(${s.image})`;
+      else if (s.mode === 'panorama' && s.image) {
+        new THREE.TextureLoader().load(s.image, (t) => {
+          t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace;
+          if (s.mode === 'panorama') state.scene.background = t;
+        });
+      } else if (s.mode === 'stars') {
+        bg.style.background = 'radial-gradient(ellipse at bottom, #1b2735, #05070d)';
+        const n = 1800, pos = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          const r = 6 + Math.random() * 10, th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
+          pos.set([r * Math.sin(ph) * Math.cos(th), r * Math.cos(ph), r * Math.sin(ph) * Math.sin(th)], i * 3);
+        }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        s.group.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 0.05, sizeAttenuation: true })));
+      } else if (s.mode === 'stage') {
+        bg.style.background = 'linear-gradient(#0b1020, #1e293b)';
+        const grid = new THREE.GridHelper(24, 48, 0x3b82f6, 0x334155);
+        grid.material.transparent = true; grid.material.opacity = 0.55;
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.62, 64),
+          new THREE.MeshBasicMaterial({ color: 0x60a5fa, side: THREE.DoubleSide }));
+        ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005;
+        s.group.add(grid, ring);
+      }
+      $('bg-mode').value = s.mode;
+      $('bg-color').classList.toggle('hidden', s.mode !== 'color');
+      $('bg-color').value = s.color;
+      $('bg-facing').value = s.facing;
+      $('bg-facing').classList.toggle('hidden', s.mode !== 'camera');
+      $('bg-file-row').classList.toggle('hidden', !(s.mode === 'image' || s.mode === 'panorama'));
+      saveStage();
+    }
+    async function startCamera() {
+      stopCamera();
+      const v = $('bg-video');
+      const fail = (msg) => { alert(msg); stage.mode = 'default'; applyStage(); };
+      if (!navigator.mediaDevices?.getUserMedia) return fail('此連線無法使用相機：手機需以 HTTPS 或 localhost 開啟本頁面。');
+      try {
+        stage.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: stage.facing }, audio: false });
+        v.srcObject = stage.stream;
+        v.style.transform = stage.facing === 'user' ? 'scaleX(-1)' : '';
+        v.classList.remove('hidden');
+        await v.play().catch(() => {});
+      } catch (e) { fail('無法開啟相機：' + e.message); }
+    }
+    function stopCamera() {
+      stage.stream?.getTracks().forEach((t) => t.stop());
+      stage.stream = null;
+      const v = $('bg-video'); v.srcObject = null; v.classList.add('hidden');
+    }
+    function initStage() {
+      try { Object.assign(stage, JSON.parse(localStorage.getItem(STAGE_KEY)) || {}); } catch (e) { /* 無存檔 */ }
+      if (stage.mode === 'camera') stage.mode = 'default';
+      state.scene.add(stage.group);
+      $('bg-mode').onchange = (e) => { stage.mode = e.target.value; applyStage(); if (stage.mode === 'camera') startCamera(); };
+      $('bg-facing').onchange = (e) => { stage.facing = e.target.value; startCamera(); };
+      $('bg-color').oninput = (e) => { stage.color = e.target.value; applyStage(); };
+      $('bg-file').onchange = async (e) => {
+        const f = e.target.files[0]; if (!f) return;
+        try { stage.image = await fileToDataURL(f); applyStage(); } catch (err) { alert('圖片讀取失敗'); }
+        e.target.value = '';
+      };
+      $('bg-clear-btn').onclick = () => { stage.image = null; applyStage(); };
+      $('outfit-target').onchange = refreshOutfitUI;
+      $('outfit-color').oninput = (e) => {
+        const c = activeChar(); c.outfit[$('outfit-target').value] = e.target.value;
+        applyOutfit(); saveChars();
+      };
+      $('outfit-reset-btn').onclick = () => { activeChar().outfit = {}; applyOutfit(); refreshOutfitUI(); saveChars(); };
+      applyStage();
+    }
+
+    // --- 5.5 CHARACTER SYSTEM：每個角色擁有獨立 LLM / Persona / TTS / 對話紀錄 ---
+    const LS_KEY = 'vrmchat.characters.v1';
+    // --- 5.6 ACTION ENGINE：[標籤] / EMOJI / 使用者口語指令 → 表情・動作・場景・衣服・位置 ---
+    const mk = (o) => ({ ...o, key: [o.expr, o.pose, o.scene, o.bg, o.cloth].join('|') });
+
+    const EXPR_RULES = [
+      [/開心|高興|快樂|微笑|大笑|笑|喜悅|happy|joy/i, 'happy'],
+      [/難過|傷心|悲傷|哭|失落|沮喪|sad/i, 'sad'],
+      [/生氣|憤怒|發火|angry/i, 'angry'],
+      [/放鬆|安心|舒服|relax/i, 'relaxed'],
+      [/驚訝|驚喜|吃驚|震驚|surprise/i, 'surprised'],
+      [/平靜|冷靜|普通|neutral/i, 'neutral']
+    ];
+    const POSE_RULES = [
+      [/左手.{0,2}(揮|招)|waveL/i, 'waveL'],
+      [/揮手|招手|打招呼|waveR|wave/i, 'waveR'],
+      [/歡呼|萬歲|慶祝|雙手(舉高|向上)|舉高雙手|cheer/i, 'cheer'],
+      [/抱胸|雙手交叉|雙臂交叉|交叉|crossed/i, 'crossed'],
+      [/思考|沉思|想想|想一想|撐下巴|thinking/i, 'thinking'],
+      [/叉腰|hips/i, 'hips'],
+      [/背後|handsBack/i, 'handsBack'],
+      [/前伸|平舉|擁抱|抱抱|reach/i, 'reach'],
+      [/合十|祈禱|拜託|pray/i, 'pray'],
+      [/害羞|臉紅|shy/i, 'shy'],
+      [/舉手|發問|提問|raiseHand/i, 'raiseHand'],
+      [/鞠躬|致意|行禮|bow/i, 'bow'],
+      [/T[\s-]?pose|T字/i, 'tpose'],
+      [/自然(站|垂)|站好|放下.{0,2}手|恢復.{0,2}(動作|姿勢)|natural/i, 'natural']
+    ];
+    const SCENE_RULES = [
+      [/星空|星星|宇宙|夜空|銀河|stars/i, 'stars'],
+      [/舞台|格線|網格|演唱會|stage/i, 'stage'],
+      [/相機|鏡頭|攝影機|實景|camera/i, 'camera'],
+      [/全景|360|panorama/i, 'panorama'],
+      [/圖片|照片|image/i, 'image'],
+      [/預設|深色|原本|原來|還原|恢復|default/i, 'default']
+    ];
+    const SCENE_NAMES = { stars: '3D 星空', stage: '3D 舞台', camera: '手機相機', panorama: '360° 全景', image: '圖片背景', color: '純色背景', default: '預設背景' };
+    const matchPose = (s) => { for (const [re, id] of POSE_RULES) if (re.test(s)) return id; return null; };
+    const matchExpr = (s) => { for (const [re, id] of EXPR_RULES) if (re.test(s)) return id; return null; };
+    const poseName = (id) => POSES.find((p) => p.id === id)?.zh || id;
+
+    const COLOR_LIST = [
+      ['天藍', '#38bdf8'], ['淺藍', '#7dd3fc'], ['深藍', '#1e3a8a'], ['藏青', '#1e3a8a'], ['寶藍', '#2563eb'], ['藍', '#3b82f6'],
+      ['粉紅', '#f9a8d4'], ['桃紅', '#ec4899'], ['酒紅', '#9f1239'], ['深紅', '#991b1b'], ['紅', '#dc2626'],
+      ['橘', '#f97316'], ['橙', '#f97316'], ['黃', '#facc15'],
+      ['淺綠', '#86efac'], ['軍綠', '#4d7c0f'], ['深綠', '#166534'], ['綠', '#22c55e'],
+      ['青', '#14b8a6'], ['紫', '#a855f7'], ['粉', '#f9a8d4'], ['白', '#ffffff'], ['黑', '#1f2937'], ['灰', '#9ca3af'],
+      ['銀', '#d1d5db'], ['金', '#fbbf24'], ['咖啡', '#92400e'], ['棕', '#92400e'], ['米', '#fef3c7'],
+      ['red', '#dc2626'], ['blue', '#3b82f6'], ['green', '#22c55e'], ['yellow', '#facc15'], ['pink', '#f9a8d4'],
+      ['purple', '#a855f7'], ['white', '#ffffff'], ['black', '#1f2937'], ['orange', '#f97316']
+    ].sort((a, b) => b[0].length - a[0].length);
+    // 單字色名（紅/白/黑…）須帶「色」或接在「成/為/變/換/穿/改/染」後，避免誤判「明白」「黑暗」
+    function matchColor(s, lenient = false) {
+      const hx = s.match(/#([0-9a-f]{6})\b/i);
+      if (hx) return { name: '#' + hx[1], hex: '#' + hx[1].toLowerCase() };
+      for (const [name, hex] of COLOR_LIST) {
+        const en = /^[a-z]+$/i.test(name);
+        const re = en ? new RegExp(`\\b${name}\\b`, 'i')
+          : (name.length === 1 && !lenient) ? new RegExp(`${name}色|[成為變換穿改染]${name}(?=的|$|\\s)`)
+          : new RegExp(name);
+        if (re.test(s)) return { name: en ? name : name + '色', hex };
+      }
+      return null;
+    }
+
+    // EMOJI → 表情 / 動作
+    const EMOJI_MAP = new Map();
+    [
+      ['😊😄😁😆😃😀🥰😍😘😸🤩😉🙂☺😺😻💖❤💕', { expr: 'happy' }],
+      ['😢😭😞😔🥺😿😥😓☹🙁😟💔', { expr: 'sad' }],
+      ['😠😡🤬💢😤👿', { expr: 'angry' }],
+      ['😌😴😪🥱😇☕🍵', { expr: 'relaxed' }],
+      ['😮😲😱😯🙀😧', { expr: 'surprised' }],
+      ['😐😑😶', { expr: 'neutral' }],
+      ['😳🙈', { expr: 'happy', pose: 'shy' }],
+      ['👋🤚', { pose: 'waveR' }],
+      ['🙏', { pose: 'pray' }],
+      ['🎉🎊🙌🥳🙆', { expr: 'happy', pose: 'cheer' }],
+      ['🤔', { pose: 'thinking' }],
+      ['🙇', { pose: 'bow' }],
+      ['🙋', { pose: 'raiseHand' }],
+      ['🤗', { expr: 'happy', pose: 'reach' }],
+      ['💁😎💪', { pose: 'hips' }],
+      ['🙅😒', { pose: 'crossed' }]
+    ].forEach(([chars, a]) => [...chars.matchAll(/\p{Extended_Pictographic}/gu)].forEach((x) => EMOJI_MAP.set(x[0], mk(a))));
+    const ACTION_RE = new RegExp(
+      `[\\[【]([^\\]】\\n]{1,20})[\\]】]|(${[...EMOJI_MAP.keys()].join('|')})(?:[\\u{1F3FB}-\\u{1F3FF}])?\\uFE0F?(?:\\u200D[\\u2640\\u2642]\\uFE0F?)?`, 'gu');
+
+    // [標籤] → 動作物件；不認得的 [xxx]（如 [1]、[Error]）回傳 null，原樣保留
+    function tagToAction(raw) {
+      const s = raw.trim(); let m;
+      if ((m = s.match(/^(?:動作|姿勢|pose|action)\s*[:：]\s*(.+)$/i))) { const id = matchPose(m[1]); return id ? mk({ pose: id }) : null; }
+      if ((m = s.match(/^(?:場景|背景|scene|bg)\s*[:：]\s*(.+)$/i))) {
+        const sc = SCENE_RULES.find(([re]) => re.test(m[1]));
+        if (sc) return mk({ scene: sc[1] });
+        const col = matchColor(m[1], true);
+        return col ? mk({ scene: 'color', bg: col.hex }) : null;
+      }
+      if ((m = s.match(/^(?:衣服|服裝|衣物|outfit|clothes)\s*[:：]\s*(.+)$/i))) {
+        const col = matchColor(m[1], true);
+        return col ? mk({ cloth: col.hex, target: m[1] }) : null;
+      }
+      if (s.length <= 8) {
+        const ex = matchExpr(s), po = matchPose(s);
+        if (ex || po) return mk({ expr: ex, pose: po });
+      }
+      return null;
+    }
+    // 抽出（依出現順序）所有動作；[標籤] 從顯示文字移除，EMOJI 保留顯示
+    function extractActions(text) {
+      const acts = [];
+      const clean = String(text).replace(ACTION_RE, (all, tag, emo) => {
+        const a = tag != null ? tagToAction(tag) : EMOJI_MAP.get(emo);
+        if (!a) return all;
+        if (!acts.length || acts[acts.length - 1].key !== a.key) acts.push(a);
+        return tag != null ? '' : all;
+      }).replace(/[ \t]{2,}/g, ' ');
+      return { clean, actions: acts.slice(0, 6) };
+    }
+    const speechText = (t) => extractActions(t).clean.replace(/[*＊]+/g, '')
+      .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\u{1F3FB}-\u{1F3FF}]/gu, '').replace(/\s{2,}/g, ' ').trim();
+
+    // --- 動作執行 ---
+    function doPose(id, persist) {
+      window.applyVRMPose(id);
+      const token = ++state.poseToken;
+      if (persist) { const c = activeChar(); if (c) { c.pose = id; saveChars(); } }
+      else setTimeout(() => { if (token === state.poseToken) window.applyVRMPose(activeChar()?.pose || 'natural'); }, 5000);
+    }
+    function changeScene(mode, color) {
+      if ((mode === 'image' || mode === 'panorama') && !stage.image) return null;
+      stage.mode = mode; if (color) stage.color = color;
+      applyStage(); if (mode === 'camera') startCamera();
+      return SCENE_NAMES[mode];
+    }
+    const OUTFIT_TARGETS = [
+      [/鞋/, /shoe|boot|foot/i, '鞋子'],
+      [/裙|洋裝/, /skirt|dress|onepiece|bottom/i, '裙子／洋裝'],
+      [/褲/, /bottom|pant|short/i, '褲子'],
+      [/上衣|襯衫|T恤|外套|毛衣|短袖/, /top|jacket|coat|shirt|cloth/i, '上衣']
+    ];
+    function setOutfitColor(clause, hex) {
+      const c = activeChar();
+      if (!c || !state.currentVRM) return null;
+      c.outfit ||= {};
+      const names = [...vrmMaterials().keys()];
+      let label = '全部衣物', hit = null;
+      for (const [kw, mre, lab] of OUTFIT_TARGETS) {
+        if (!kw.test(clause)) continue;
+        const found = names.filter((n) => mre.test(n));
+        if (found.length) { hit = found; label = lab; break; }
+      }
+      if (hit) hit.forEach((n) => { c.outfit[n] = hex; });
+      else c.outfit = { __auto__: hex };
+      applyOutfit(); refreshOutfitUI(); saveChars();
+      return label;
+    }
+    function doAction(a) {
+      if (a.expr) window.setVRMExpression(a.expr);
+      if (a.pose) doPose(a.pose, false);
+      if (a.scene) changeScene(a.scene, a.bg);
+      if (a.cloth) setOutfitColor(a.target || '', a.cloth);
+    }
+    function runActions(actions) {
+      state.actionTimers.forEach(clearTimeout); state.actionTimers = [];
+      actions.forEach((a, i) => state.actionTimers.push(setTimeout(() => doAction(a), i * 1600)));
+    }
+
+    // --- 使用者口語指令（本地解析，不依賴 LLM；可一句多指令）---
+    const CLOTHES_RE = /衣服|衣物|服裝|上衣|襯衫|外套|制服|洋裝|裙|褲|鞋|T恤|短袖|毛衣/;
+    const CHANGE_RE = /換|變|改|染|穿|成|弄|調|試|請|幫/;
+    const MOVE_DIR = /左邊|右邊|左側|右側|往左|往右|向左|向右|中間|中央|靠近|走近|過來|前進|後退|退後|遠離|回到原/;
+    const MOVE_VERB = /走|移|站|往|向|退|靠|前進|後退|過來|遠離|回到|去/;
+    function parseUserCommands(text) {
+      const done = [];
+      const clauses = text.split(/[，,。；;！!？?\n]|然後|並且|而且|接著|同時|還有|以及/).map((x) => x.trim()).filter(Boolean);
+      for (const s of clauses) {
+        const hasClothes = CLOTHES_RE.test(s);
+        const hasScene = /場景|背景|舞台|環境|換景/.test(s) || /(去|到|來到|切換到).{0,4}(星空|舞台|宇宙)/.test(s);
+        const color = matchColor(s);
+
+        // 1) 衣服顏色
+        if (hasClothes && !hasScene && /還原|恢復|原本|原來|預設/.test(s) && !color) {
+          const c = activeChar(); c.outfit = {}; applyOutfit(); refreshOutfitUI(); saveChars();
+          done.push('衣服顏色已還原'); continue;
+        }
+        if (hasClothes && !hasScene && color && CHANGE_RE.test(s)) {
+          const lab = setOutfitColor(s, color.hex);
+          done.push(lab ? `${lab}→${color.name}` : `衣服換色（需先載入 VRM 模型）`); continue;
+        }
+        // 2) 場景（背景）
+        if (hasScene && /換|變|改|切|去|到|成|設|帶|轉|移|來/.test(s)) {
+          let mode = null, col = null;
+          for (const [re, m] of SCENE_RULES) if (re.test(s)) { mode = m; break; }
+          if (!mode && (col = color)) mode = 'color';
+          if (!mode && /純色/.test(s)) mode = 'color';
+          if (!mode) { const order = ['stars', 'stage', 'default']; mode = order[(order.indexOf(stage.mode) + 1) % order.length]; }
+          const lab = changeScene(mode, col?.hex);
+          done.push(lab ? `場景→${lab}` : `場景（${SCENE_NAMES[mode]}需先在設定上傳圖片）`); continue;
+        }
+        // 3) 角色移動
+        if (!hasScene && !hasClothes && MOVE_DIR.test(s) && MOVE_VERB.test(s) && !/手|腳|頭|眼/.test(s)) {
+          const mv = state.move; let lab = [];
+          if (/中間|中央|回到原/.test(s)) { mv.tx = 0; mv.tz = 0; lab.push('回到中間'); }
+          else {
+            if (/左/.test(s)) { mv.tx = -0.6; lab.push('左邊'); }
+            else if (/右/.test(s)) { mv.tx = 0.6; lab.push('右邊'); }
+            if (/靠近|走近|過來|前進/.test(s)) { mv.tz = Math.min(0.9, mv.tz + 0.4); lab.push('靠近鏡頭'); }
+            if (/後退|退後|遠離/.test(s)) { mv.tz = Math.max(-1.5, mv.tz - 0.5); lab.push('遠離鏡頭'); }
+          }
+          if (lab.length) { done.push(`移動→${lab.join('、')}`); continue; }
+        }
+        // 4) 動作
+        if (!/什麼|為什麼|怎麼|如何|意思/.test(s)) {
+          const id = matchPose(s);
+          if (id) { doPose(id, true); done.push(`動作→${poseName(id)}`); }
+        }
+        // 5) 表情
+        if (/表情|笑一|哭一|生氣一|驚訝一|裝|扮|露出|做出|變得|開心一點|難過一點|生氣一點/.test(s)) {
+          const ex = matchExpr(s);
+          if (ex) { window.setVRMExpression(ex); done.push(`表情→${ex}`); }
+        }
+      }
+      return done;
+    }
+
+    // --- Persona / System Prompt：確保「自我介紹」必引用角色設定 ---
+    const INTRO_RE = /介紹(一下)?(你|妳|您)?自己|自我介紹|你是誰|妳是誰|你叫什麼|妳叫什麼|你的名字|妳的名字|你是什麼|who are you|introduce yourself|tell me about yourself/i;
+    const personaOf = (c) => (c.systemPrompt || '').trim() || '友善、樂於助人的 AI 夥伴';
+    const plainPersona = (c) => personaOf(c).replace(/[\[【]([^\]】]*)[\]】]/g, '$1');
+    function buildSystemPrompt(c) {
+      return `你的名字是「${c.name}」。以下是你的角色設定（Persona），你必須始終以第一人稱、以此身份說話：
+${personaOf(c)}
+
+【自我介紹規則】當使用者請你介紹自己或問你是誰時，必須引用上述角色設定的內容（名字、個性、說話風格、特點）來回答，不得自稱通用 AI 或語言模型。
+【表情與動作】回覆中可使用方括號標籤，系統會自動轉成角色的表情或動作（標籤不會顯示給使用者）：
+表情：[開心] [難過] [生氣] [放鬆] [驚訝] [平靜]
+動作：[動作:揮手] [動作:鞠躬] [動作:歡呼] [動作:害羞] [動作:思考] [動作:叉腰] [動作:合十] [動作:舉手] [動作:雙手交叉] [動作:雙手前伸]
+也可使用 EMOJI（例如 😊😢😠😮👋🙏🎉🤔🙇），系統會對應成相應的表情或動作。
+場景與衣服標籤（[場景:星空]、[衣服:紅色]）只在使用者明確要求時才使用。
+請在情緒轉折處放入標籤，並一律使用繁體中文。${memoryBlock(c)}`;
+    }
+    function localIntro(c) {
+      return `[開心]大家好，我是${c.name}！${plainPersona(c)}（目前無法連線到 LLM，這段自我介紹直接取自我的角色設定。）`;
+    }
+    function deliverReply(c, reply) {
+      const { clean, actions } = extractActions(reply);
+      appendChatMessage('assistant', clean.trim() || reply);
+      showCaption(speechText(clean));
+      if (disc.onStage && !disc.active) {   // 討論舞台仍在：讓舞台上對應的角色動作與說話
+        const actor = disc.actors.find((x) => x.char.id === c.id);
+        if (actor) {
+          actions.forEach((a) => { if (a.scene) changeScene(a.scene, a.bg); });
+          actorActions(actor, actions);
+          disc.speaker = actor;
+          speakActor(actor, clean, disc.token).then(() => { if (disc.speaker === actor) disc.speaker = null; });
+          return;
+        }
+        exitStage(true); updateDiscUI();     // 此角色不在舞台上：返回單人模式
+        appendChatMessage('system', '此角色不在討論舞台上，已返回單人模式');
+      }
+      runActions(actions);
+      speakText(clean, c);
+    }
+
+    const $ = (id) => document.getElementById(id);
+    const roster = { list: [], activeId: null };
+
+    function newChar(o = {}) {
+      return {
+        id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+        name: '角色', presetId: DEFAULT_PRESET_ID,
+        baseUrl: 'http://localhost:11434/v1', apiKey: '', model: '', temperature: 0.7,
+        systemPrompt: '', voiceName: '', rate: 1.0, pitch: 1.1, messages: [], outfit: {}, pose: 'natural', provider: 'puter', memory: [], summary: '', memIdx: 0, memAuto: true, ...o
+      };
+    }
+    const activeChar = () => roster.list.find((c) => c.id === roster.activeId);
+    function saveChars() {
+      try { localStorage.setItem(LS_KEY, JSON.stringify(roster)); } catch (e) { console.warn('save failed', e); }
+    }
+    function loadChars() {
+      try {
+        const d = JSON.parse(localStorage.getItem(LS_KEY));
+        if (d && d.list && d.list.length) { roster.list = d.list.map((c) => newChar({ provider: 'openai', ...c })); roster.activeId = d.activeId; }
+      } catch (e) { /* 無存檔 */ }
+      if (!activeChar()) {
+        // 首次啟動：以頁面原有預設值建立第一個角色
+        const c = newChar({ name: '角色 1', provider: 'puter', model: '', systemPrompt: $('system-prompt').value });
+        roster.list = [c]; roster.activeId = c.id;
+      }
+    }
+    function renderSelect() {
+      const sel = $('char-select');
+      sel.innerHTML = '';
+      roster.list.forEach((c) => {
+        const o = document.createElement('option');
+        o.value = c.id; o.textContent = c.name; sel.appendChild(o);
+      });
+      sel.value = roster.activeId;
+    }
+    function applyCharVoice() {
+      const c = activeChar();
+      if (!c || !state.ttsVoices.length) return;
+      let i = state.ttsVoices.findIndex((v) => v.name === c.voiceName);
+      if (i < 0) i = state.ttsVoices.findIndex((v) => /^zh/i.test(v.lang));
+      if (i < 0) i = 0;
+      $('tts-voice-select').value = i;
+    }
+    function fillForm(c) {
+      $('char-name').value = c.name;
+      $('api-provider').value = c.provider;
+      $('api-base-url').value = c.baseUrl;
+      $('api-key').value = c.apiKey;
+      $('api-model-name').value = c.model;
+      syncPuterSelect(c.model);
+      $('api-temperature').value = c.temperature;
+      $('system-prompt').value = c.systemPrompt;
+      fillMemoryUI(c);
+      $('tts-rate').value = c.rate; $('tts-rate-val').innerText = c.rate;
+      $('tts-pitch').value = c.pitch; $('tts-pitch-val').innerText = c.pitch;
+      $('vrm-preset-select').value = c.presetId; updatePresetInfo();
+      applyCharVoice();
+    }
+    function syncForm() {
+      const c = activeChar();
+      c.name = $('char-name').value.trim() || c.name;
+      c.provider = $('api-provider').value;
+      toggleProvider(c);
+      c.baseUrl = $('api-base-url').value.trim();
+      c.apiKey = $('api-key').value;
+      c.model = $('api-model-name').value.trim();
+      const t = parseFloat($('api-temperature').value);
+      c.temperature = Number.isFinite(t) ? Math.min(2, Math.max(0, t)) : 0.7;
+      c.systemPrompt = $('system-prompt').value;
+      c.memory = $('mem-facts').value.split('\n').map((s) => s.trim()).filter(Boolean);
+      c.summary = $('mem-summary').value.trim();
+      c.memAuto = $('mem-auto').checked;
+      c.rate = parseFloat($('tts-rate').value);
+      c.pitch = parseFloat($('tts-pitch').value);
+      const v = state.ttsVoices[$('tts-voice-select').value];
+      if (v) c.voiceName = v.name;
+      const opt = $('char-select').querySelector(`option[value="${c.id}"]`);
+      if (opt) opt.textContent = c.name;
+      saveChars();
+    }
+    function toggleProvider(c) {
+      const puterOn = c.provider === 'puter';
+      $('openai-fields').classList.toggle('hidden', puterOn);
+      $('puter-model-row').classList.toggle('hidden', !puterOn);
+      $('temp-row').classList.toggle('hidden', puterOn);
+      $('api-model-name').placeholder = puterOn ? '留空＝Puter 預設模型，或自行輸入模型 ID' : 'gpt-4o-mini, llama3, qwen2.5';
+    }
+    // --- Puter AI：預設設定（官方文件：未指定 model 時使用 gpt-5-nano；未指定 temperature 時使用模型預設）---
+    const PUTER_MODELS = [
+      ['', 'Puter 預設模型（留空・官方文件為 gpt-5-nano）'],
+      ['gpt-5-nano', 'GPT-5 nano（快速・輕量）'],
+      ['openai/gpt-5.4-nano', 'GPT-5.4 nano'],
+      ['gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite'],
+      ['z-ai/glm-4.7-flash', 'GLM 4.7 Flash'],
+      ['anthropic/claude-sonnet-4-6', 'Claude Sonnet 4.6（品質高・較耗額度）']
+    ];
+    function puterSelectHas(v) { return [...$('puter-model-select').options].some((o) => o.value === v); }
+    function syncPuterSelect(model) {
+      const sel = $('puter-model-select');
+      if (model && !puterSelectHas(model)) {
+        const o = document.createElement('option'); o.value = model; o.textContent = '自訂：' + model; sel.appendChild(o);
+      }
+      sel.value = model || '';
+    }
+    async function loadPuterModels() {
+      const btn = $('puter-refresh-btn');
+      if (typeof puter === 'undefined' || !puter.ai?.listModels) return alert('Puter.js 未載入或不支援 listModels（需可連線 js.puter.com）');
+      btn.disabled = true;
+      try {
+        const r = await puter.ai.listModels();
+        const pick = (m) => (typeof m === 'string' ? m : (m?.id || m?.model || m?.name));
+        let ids = Array.isArray(r) ? r.map(pick) : Object.values(r || {}).flat().map(pick);
+        ids = [...new Set(ids.filter(Boolean))].sort();
+        if (!ids.length) throw new Error('清單為空');
+        const sel = $('puter-model-select'), cur = activeChar()?.model || '';
+        sel.querySelectorAll('optgroup').forEach((g) => g.remove());
+        const grp = document.createElement('optgroup'); grp.label = `Puter 即時清單（${ids.length}）`;
+        ids.forEach((id) => { const o = document.createElement('option'); o.value = id; o.textContent = id; grp.appendChild(o); });
+        sel.appendChild(grp); syncPuterSelect(cur);
+      } catch (e) { alert('載入 Puter 模型清單失敗：' + errText(e)); }
+      finally { btn.disabled = false; }
+    }
+    function initPuterUI() {
+      const sel = $('puter-model-select');
+      PUTER_MODELS.forEach(([v, label]) => { const o = document.createElement('option'); o.value = v; o.textContent = label; sel.appendChild(o); });
+      sel.onchange = () => { $('api-model-name').value = sel.value; syncForm(); };
+      $('puter-refresh-btn').onclick = loadPuterModels;
+    }
+    const errText = (e) => e?.message || e?.error?.message || (typeof e === 'string' ? e : (() => { try { return JSON.stringify(e); } catch { return String(e); } })());
+
+    async function askPuter(c, messages) {
+      if (typeof puter === 'undefined') throw new Error('Puter.js 未載入（需可連線 js.puter.com）');
+      // 不傳 temperature：沿用模型預設（部分模型不接受自訂值）；model 留空＝Puter 預設模型
+      const run = (opt) => (Object.keys(opt).length ? puter.ai.chat(messages, opt) : puter.ai.chat(messages));
+      let r;
+      try {
+        r = await run(c.model ? { model: c.model } : {});
+      } catch (e) {
+        if (!c.model) throw e;
+        console.warn('Puter 指定模型失敗，改用預設模型：', c.model, e);
+        appendChatMessage('system', `⚠ 模型「${c.model}」無法使用（${errText(e)}），已改用 Puter 預設模型`);
+        r = await run({});
+      }
+      let t = typeof r === 'string' ? r : (r?.message?.content ?? r?.text);
+      if (Array.isArray(t)) t = t.map((x) => x.text || '').join('');
+      return t || 'No response received.';
+    }
+    function renderChat(c) {
+      $('chat-history').innerHTML = '';
+      appendChatMessage('assistant', `我是 ${c.name}，請多指教！`);
+      c.messages.forEach((m) => appendChatMessage(m.role, extractActions(m.content).clean.trim()));
+    }
+    function switchChar(id) {
+      roster.activeId = id;
+      const c = activeChar();
+      state.speechToken++; state.speechSynth?.cancel(); state.isSpeaking = false;
+      renderSelect(); fillForm(c); toggleProvider(c); renderChat(c); saveChars();
+      loadPresetVRM(c.presetId);
+    }
+    function initCharacters() {
+      initPuterUI();
+      initStage();
+      loadChars();
+      renderSelect();
+      $('char-select').onchange = (e) => switchChar(e.target.value);
+      $('settings-drawer').addEventListener('input', (e) => { if (!['char-select','bg-mode','bg-color','bg-file','bg-facing','outfit-target','outfit-color'].includes(e.target.id)) syncForm(); });
+      $('load-official-vrm-btn').addEventListener('click', () => {
+        activeChar().presetId = $('vrm-preset-select').value; saveChars();
+      });
+      $('char-add-btn').onclick = () => {
+        const base = activeChar();
+        const c = newChar({ name: `角色 ${roster.list.length + 1}`, systemPrompt: base.systemPrompt }); // 預設 provider = puter
+        roster.list.push(c); switchChar(c.id);
+      };
+      $('char-del-btn').onclick = () => {
+        if (roster.list.length <= 1) return alert('至少需保留一個角色。');
+        const c = activeChar();
+        if (!confirm(`刪除「${c.name}」及其對話紀錄？`)) return;
+        roster.list = roster.list.filter((x) => x.id !== c.id);
+        switchChar(roster.list[0].id);
+      };
+      fillForm(activeChar()); toggleProvider(activeChar()); renderChat(activeChar());
+      loadPresetVRM(activeChar().presetId);
+    }
+
+    // --- 5.7 LONG-TERM MEMORY：條目（facts）＋滾動摘要（summary），依角色儲存 ---
+    function memoryBlock(c) {
+      const f = (c.memory || []).map((x) => '- ' + x).join('\n');
+      if (!f && !c.summary) return '';
+      return `\n【長期記憶】以下是你對使用者的長期記憶，請自然運用於對話（稱呼、延續話題、記得約定），不要逐條背誦；沒有記載的事不要編造。\n${f ? f + '\n' : ''}${c.summary ? '先前對話摘要：' + c.summary : ''}`;
+    }
+    function fillMemoryUI(c) {
+      $('mem-facts').value = (c.memory || []).join('\n');
+      $('mem-summary').value = c.summary || '';
+      $('mem-auto').checked = c.memAuto !== false;
+    }
+    async function askLLM(c, messages) {   // 非串流、低溫度的單次呼叫（供記憶整理使用）
+      if (c.provider === 'puter') return askPuter(c, messages);
+      const r = await fetch(`${(c.baseUrl || '').replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(c.apiKey ? { Authorization: `Bearer ${c.apiKey}` } : {}) },
+        body: JSON.stringify({ model: c.model, messages, temperature: 0.2 })
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return (await r.json()).choices?.[0]?.message?.content || '';
+    }
+    async function updateMemory(c) {
+      if (state.memBusy) return;
+      state.memBusy = true;
+      const end = c.messages.length, from = (c.memIdx || 0) > end ? 0 : (c.memIdx || 0);
+      const recent = c.messages.slice(from, end)
+        .map((m) => `${m.role === 'user' ? '使用者' : c.name}：${extractActions(m.content).clean.trim()}`).join('\n');
+      try {
+        const out = await askLLM(c, [
+          { role: 'system', content: '你是記憶整理器，只輸出 JSON，不要任何多餘文字或程式碼框。' },
+          { role: 'user', content: `現有長期記憶：\n${(c.memory || []).map((x) => '- ' + x).join('\n') || '（無）'}\n現有對話摘要：${c.summary || '（無）'}\n\n新對話：\n${recent}\n\n請輸出 JSON：{"facts":["..."],"summary":"..."}\n規則：facts 是關於使用者的穩定資訊（名字、喜好、職業、重要事件、與角色的約定），每條 30 字內，合併重複、移除過時，最多 30 條，仍正確的現有條目必須保留；summary 是更新後的對話摘要，200 字內；沒有新資訊就原樣回傳現有內容。` }
+        ]);
+        const j = JSON.parse(out.match(/\{[\s\S]*\}/)[0]);
+        if (Array.isArray(j.facts)) c.memory = [...new Set(j.facts.map((s) => String(s).trim()).filter(Boolean))].slice(0, 30);
+        if (typeof j.summary === 'string') c.summary = j.summary.trim().slice(0, 600);
+        c.memIdx = end; saveChars();
+        if (c.id === roster.activeId) fillMemoryUI(c);
+      } catch (e) { console.warn('記憶整理失敗，下次對話再試：', e); }
+      finally { state.memBusy = false; }
+    }
+    function maybeUpdateMemory(c) {
+      const pending = c.messages.length - Math.min(c.memIdx || 0, c.messages.length);
+      if (c.memAuto !== false && pending >= 12) updateMemory(c);
+    }
+
+    // --- 6. CHATBOT LLM INTEGRATION ---
+    async function handleSendMessage() {
+      const inputEl = document.getElementById('chat-input');
+      const message = inputEl.value.trim();
+      if (!message) return;
+
+      inputEl.value = '';
+      appendChatMessage('user', message);
+      if (disc.active) {   // 討論進行中：使用者插話，下一位角色會先回應
+        disc.transcript.push({ name: '使用者', text: message }); disc.pendingUser = true;
+        return;
+      }
+
+      // Show Typing Indicator
+      const typingEl = document.getElementById('typing-indicator');
+      typingEl.classList.remove('hidden');
+
+      // 鎖定發話當下的角色：即使請求中切換角色，回覆也只會寫入該角色
+      const c = activeChar();
+      const rid = ++state.reqId, ac = (state.abort = new AbortController());
+      const baseUrl = (c.baseUrl || '').replace(/\/$/, "");
+      const apiKey = c.apiKey;
+      const model = c.model;
+
+      const mm = message.match(/^(?:請|麻煩)?(?:你)?(?:幫我)?記住[：:，,\s]*(.{2,60})$/);
+      if (mm) {
+        c.memory = [...new Set([...(c.memory || []), mm[1].trim()])].slice(-30); saveChars(); fillMemoryUI(c);
+        appendChatMessage('system', '✔ 已記住：' + mm[1].trim());
+      }
+      // (a) 本地解析口語指令：換動作 / 換場景 / 移動角色 / 衣服換色 / 表情
+      const cmdDone = parseUserCommands(message);
+      if (cmdDone.length) appendChatMessage('system', '✔ 已執行：' + cmdDone.join('、'));
+      // (b) 自我介紹：強制帶入角色設定
+      const introAsk = INTRO_RE.test(message);
+
+      c.messages.push({ role: 'user', content: message });
+      const msgs = c.messages.slice(-40).map((m) => ({ ...m }));
+      const hints = [];
+      if (cmdDone.length) hints.push(`系統已替你執行：${cmdDone.join('、')}。請以角色口吻簡短回應，可搭配表情標籤。`);
+      if (introAsk) hints.push(`使用者要求你自我介紹。請以第一人稱、明確引用你的角色設定來介紹自己（名字：${c.name}；角色設定：${plainPersona(c)}），不要自稱通用 AI 模型。`);
+      if (hints.length) msgs[msgs.length - 1].content += `\n\n（系統提示：${hints.join(' ')}）`;
+      const requestMessages = [
+        { role: 'system', content: buildSystemPrompt(c) },
+        ...msgs
+      ];
+
+      try {
+        let assistantReply;
+        if (c.provider === 'puter') assistantReply = await askPuter(c, requestMessages);
+        else {
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+          signal: ac.signal,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: requestMessages,
+            temperature: c.temperature
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        assistantReply = data.choices[0]?.message?.content || "No response received.";
+        }
+
+        if (rid !== state.reqId) return;   // 已按停止
+        c.messages.push({ role: 'assistant', content: assistantReply });
+        saveChars();
+        maybeUpdateMemory(c);
+
+        if (c.id === roster.activeId) deliverReply(c, assistantReply);
+
+      } catch (err) {
+        if (err?.name === 'AbortError' || rid !== state.reqId) return;
+        console.error("Chat API Error:", err);
+        const errorMsg = `[Error] ${c.name} 無法連線至 LLM（${c.provider === 'puter' ? 'Puter AI' : c.baseUrl}）：${errText(err)}。請檢查此角色的 LLM 設定。`;
+        if (c.id === roster.activeId) appendChatMessage('assistant', errorMsg);
+        if (introAsk) { // LLM 離線時，自我介紹直接取自角色設定
+          const intro = localIntro(c);
+          c.messages.push({ role: 'assistant', content: intro }); saveChars();
+          if (c.id === roster.activeId) deliverReply(c, intro);
+        }
+      } finally {
+        typingEl.classList.add('hidden');
+      }
+    }
+
+    function appendChatMessage(role, text) {
+      const history = document.getElementById('chat-history');
+      if (role === 'system') {
+        const chip = document.createElement('div');
+        chip.className = 'text-center text-[11px] text-emerald-300/90 py-0.5';
+        chip.textContent = text;
+        history.appendChild(chip); history.scrollTop = history.scrollHeight;
+        return;
+      }
+      const msgDiv = document.createElement('div');
+      msgDiv.className = `flex gap-3 max-w-[85%] ${role === 'user' ? 'ml-auto flex-row-reverse' : ''}`;
+
+      const avatar = role === 'user' 
+        ? `<div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 shrink-0 mt-0.5"><i class="fa-solid fa-user text-xs"></i></div>`
+        : `<div class="w-8 h-8 rounded-full bg-brand-600/30 border border-brand-500/40 flex items-center justify-center text-brand-400 shrink-0 mt-0.5"><i class="fa-solid fa-robot text-xs"></i></div>`;
+
+      const cardStyle = role === 'user'
+        ? `bg-brand-600 text-white rounded-2xl rounded-tr-xs p-3.5 leading-relaxed shadow-sm`
+        : `glass-card rounded-2xl rounded-tl-xs p-3.5 text-slate-200 leading-relaxed shadow-sm`;
+
+      msgDiv.innerHTML = `
+        ${avatar}
+        <div class="${cardStyle}">${escapeHTML(text)}</div>
+      `;
+
+      history.appendChild(msgDiv);
+      history.scrollTop = history.scrollHeight;
+    }
+
+    function escapeHTML(str) {
+      return str.replace(/[&<>'"]/g, 
+        tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
+    }
+
+    // --- 7. EVENT LISTENERS SETUP ---
+    function setupUIEvents() {
+      buildPoseGrid();
+      // Settings Drawer Toggles
+      const drawer = document.getElementById('settings-drawer');
+      document.getElementById('open-settings-btn').onclick = () => drawer.classList.remove('translate-x-full');
+      document.getElementById('close-settings-btn').onclick = () => drawer.classList.add('translate-x-full');
+      document.getElementById('save-settings-btn').onclick = () => drawer.classList.add('translate-x-full');
+
+      // Pose Modal Toggles
+      const poseModal = document.getElementById('pose-modal');
+      const openPoseBtn = document.getElementById('open-pose-btn');
+      const closePoseBtn = document.getElementById('close-pose-btn');
+
+      openPoseBtn.onclick = () => {
+        poseModal.classList.remove('opacity-0', 'pointer-events-none');
+      };
+      closePoseBtn.onclick = () => {
+        poseModal.classList.add('opacity-0', 'pointer-events-none');
+      };
+
+      // Close modal when selecting a pose
+      poseModal.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          poseModal.classList.add('opacity-0', 'pointer-events-none');
+        });
+      });
+
+      // Chat Box Minimize/Expand Toggle
+      let isChatCollapsed = false;
+      const chatCard = document.getElementById('chat-card');
+      const chatToggleBar = document.getElementById('chat-toggle-bar');
+      const collapseIcon = document.getElementById('collapse-icon');
+
+      const toggleChatCollapse = () => {
+        isChatCollapsed = !isChatCollapsed;
+        if (isChatCollapsed) {
+          chatCard.style.height = '36px';
+          collapseIcon.className = 'fa-solid fa-chevron-up';
+        } else {
+          chatCard.style.height = '280px';
+          collapseIcon.className = 'fa-solid fa-chevron-down';
+        }
+      };
+
+      chatToggleBar.onclick = toggleChatCollapse;
+
+      // VRM File Input
+      document.getElementById('vrm-file-input').onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const url = URL.createObjectURL(file);
+          loadVRMModel(url).catch(() => alert("Failed to load VRM file. Reverting to default avatar."));
+        }
+      };
+
+      // Load Official ChatVRM Avatar
+      populatePresetSelect();
+      document.getElementById('load-official-vrm-btn').onclick = () =>
+        loadPresetVRM(document.getElementById('vrm-preset-select').value);
+
+      // Reset to Procedural Avatar
+      document.getElementById('reset-vrm-btn').onclick = () => {
+        if (state.currentVRM) {
+          VRMUtils.deepDispose(state.currentVRM.scene);
+          state.scene.remove(state.currentVRM.scene);
+          state.currentVRM = null;
+        }
+        if (state.fallbackAvatar) {
+          state.fallbackAvatar.group.visible = true;
+        }
+        document.getElementById('avatar-status-text').innerText = 'Procedural Avatar Active';
+      };
+
+      // Range Sliders UI Labels
+      document.getElementById('tts-rate').oninput = (e) => {
+        document.getElementById('tts-rate-val').innerText = e.target.value;
+      };
+      document.getElementById('tts-pitch').oninput = (e) => {
+        document.getElementById('tts-pitch-val').innerText = e.target.value;
+      };
+
+      // Send Message Events
+      document.getElementById('send-btn').onclick = handleSendMessage;
+      document.getElementById('chat-input').onkeydown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          handleSendMessage();
+        }
+      };
+
+      // 停止／靜音／清除對話
+      document.getElementById('stop-btn').onclick = stopAll;
+      const muteBtn = document.getElementById('mute-btn');
+      const paintMute = () => { muteBtn.innerHTML = `<i class="fa-solid ${state.muted ? 'fa-volume-xmark text-red-400' : 'fa-volume-high'} text-sm"></i>`; };
+      muteBtn.onclick = () => {
+        state.muted = !state.muted; localStorage.setItem('vrmchat.muted', state.muted ? '1' : '0');
+        if (state.muted) { state.speechToken++; state.speechSynth?.cancel(); state.isSpeaking = false; }
+        paintMute();
+      };
+      paintMute();
+      document.getElementById('clear-btn').onclick = () => {
+        const c = activeChar(); if (!c || !confirm(`清除「${c.name}」的對話紀錄？`)) return;
+        stopAll(); c.messages = []; c.memIdx = 0; saveChars(); renderChat(c);
+      };
+
+      document.getElementById('mem-clear-btn').onclick = () => {
+        const c = activeChar(); if (!c || !confirm(`清除「${c.name}」的全部長期記憶？`)) return;
+        c.memory = []; c.summary = ''; c.memIdx = c.messages.length; saveChars(); fillMemoryUI(c);
+      };
+
+      // Mic Button STT Event
+      document.getElementById('mic-btn').onclick = () => {
+        if (!state.recognition) return;
+        if (state.isListening) {
+          state.recognition.stop();
+        } else {
+          state.recognition.start();
+        }
+      };
+    }
+
+
+    // =====================================================================
+    // 8. 多角色討論（Multi-role Discussion）
+    //    - 每位參與角色各自載入一個 VRM「演員」，擁有獨立的姿勢／表情／口型／眨眼
+    //    - 載入時一律直接套用「自然垂放」姿態
+    //    - 角色依序以各自的 LLM 與語音發言，其他角色會轉頭看向發言者
+    // =====================================================================
+    const DISC_KEY = 'vrmchat.disc.v1';
+    const DISC_MAX = 4;
+    const TAG_COLORS = ['#38bdf8', '#f472b6', '#facc15', '#4ade80'];
+    const disc = {
+      active: false, busy: false, onStage: false, token: 0,
+      actors: [], speaker: null, transcript: [], abort: null,
+      speechQueue: [], cancelSpeech: null, timers: [], saved: null, pendingUser: false
+    };
+    const _v3 = new THREE.Vector3();
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // 直接把 poseCur 設為某姿勢的目標值（不經過平滑過渡）
+    function snapPoseCur(cur, id) {
+      const pose = POSES.find((p) => p.id === id) || POSES[0];
+      POSE_BONES.forEach((n) => { cur[n] = [...(pose.b[n] || [0, 0, 0])]; });
+    }
+
+    // --- 8.1 載入與建立演員 ---
+    async function loadActorVRM(c) {
+      const preset = VRM_PRESETS.find((m) => m.id === c.presetId) || VRM_PRESETS.find((m) => m.id === DEFAULT_PRESET_ID);
+      let lastErr;
+      for (const url of preset.urls) {
+        try {
+          const loader = new GLTFLoader();
+          loader.register((p) => new VRMLoaderPlugin(p));
+          const gltf = await loader.loadAsync(url);
+          const vrm = gltf.userData.vrm;
+          if (!vrm) throw new Error('不是有效的 VRM 檔案');
+          VRMUtils.rotateVRM0(vrm);
+          return vrm;
+        } catch (e) { lastErr = e; console.warn('VRM source failed, trying next:', url, e); }
+      }
+      throw lastErr || new Error('VRM 載入失敗');
+    }
+
+    function applyOutfitTo(vrm, o) {
+      vrm.scene.traverse((obj) => {
+        if (!obj.isMesh) return;
+        [].concat(obj.material).forEach((m) => {
+          if (!m || !m.name || !m.color) return;
+          const hex = o[m.name] ?? (CLOTH_RE.test(m.name) ? o.__auto__ : undefined);
+          if (hex) { m.color.set(hex); m.shadeColorFactor?.set(hex).multiplyScalar(0.7); }
+        });
+      });
+    }
+
+    function tagLayer() {
+      let el = $('actor-tags');
+      if (!el) {
+        el = document.createElement('div'); el.id = 'actor-tags';
+        el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:5;overflow:hidden';
+        document.body.appendChild(el);
+      }
+      return el;
+    }
+
+    function makeActor(c, vrm, idx) {
+      const color = TAG_COLORS[idx % TAG_COLORS.length];
+      const tag = document.createElement('div');
+      tag.textContent = c.name;
+      tag.style.cssText = `position:absolute;left:0;top:0;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;will-change:transform;transition:background .2s,border-color .2s,color .2s;background:rgba(15,23,42,.7);color:#fff;border:2px solid ${color}66`;
+      tagLayer().appendChild(tag);
+      const a = {
+        char: c, vrm, color, tag, tagOn: false, tagName: c.name,
+        x: 0, z: 0, yaw: 0, baseYaw: vrm.scene.rotation.y, phase: Math.random() * 6,
+        pose: 'natural', poseCur: {}, poseToken: 0, gaze: { x: 0, y: 0 },
+        exprTarget: 'neutral', exprTime: 0, exprCur: {},
+        blink: { on: false, next: 1 + Math.random() * 3, t0: 0 }, mouth: { v: 'aa', amp: 0, next: 0, cur: {} },
+        speaking: false, look: new THREE.Object3D()
+      };
+      snapPoseCur(a.poseCur, 'natural');            // 載入即為自然垂放
+      if (vrm.lookAt) vrm.lookAt.target = a.look;
+      applyOutfitTo(vrm, c.outfit || {});
+      state.scene.add(a.look, vrm.scene);
+      return a;
+    }
+
+    function layoutActors() {
+      const n = disc.actors.length, gap = n <= 2 ? 0.9 : 0.8;
+      disc.actors.forEach((a, i) => {
+        a.x = (i - (n - 1) / 2) * gap; a.z = 0; a.yaw = -a.x * 0.12;   // 稍微朝向中間
+        a.look.position.set(a.x, 1.45, 2.5);
+      });
+      const asp = window.innerWidth / window.innerHeight, halfW = ((n - 1) * gap) / 2 + 0.55;
+      const dist = Math.min(4.8, Math.max(1.8, halfW / (Math.tan(THREE.MathUtils.degToRad(15)) * asp)));
+      state.camera.position.set(0, 1.15, dist);
+      state.controls.target.set(0, 1.1, 0);
+    }
+
+    async function enterStage(chars) {
+      if (state.isLoadingVRM) throw new Error('目前正在載入單人模型，請稍後再試。');
+      state.isLoadingVRM = true;
+      const ls = $('loading-screen');
+      ls.classList.remove('hidden', 'opacity-0');
+      const loaded = [];
+      try {
+        for (let i = 0; i < chars.length; i++) {
+          $('loading-text').innerText = `載入角色 ${i + 1}/${chars.length}：${chars[i].name}`;
+          try { loaded.push({ c: chars[i], vrm: await loadActorVRM(chars[i]) }); }
+          catch (e) { console.error(e); alert(`角色「${chars[i].name}」的模型載入失敗：${errText(e)}`); }
+        }
+        if (loaded.length < 2) {
+          loaded.forEach((l) => VRMUtils.deepDispose(l.vrm.scene));
+          throw new Error('成功載入的角色不足 2 位，無法開始討論。');
+        }
+        exitStage(false);                              // 清掉舊舞台（保留視角備份）
+        if (!disc.saved) disc.saved = { pos: state.camera.position.clone(), target: state.controls.target.clone() };
+        if (state.currentVRM) state.currentVRM.scene.visible = false;
+        if (state.fallbackAvatar) state.fallbackAvatar.group.visible = false;
+        disc.actors = loaded.map((l, i) => makeActor(l.c, l.vrm, i));
+        disc.onStage = true;
+        layoutActors();
+      } finally {
+        state.isLoadingVRM = false;
+        ls.classList.add('opacity-0');
+        setTimeout(() => ls.classList.add('hidden'), 500);
+      }
+    }
+
+    function exitStage(restore = true) {
+      disc.timers.forEach(clearTimeout); disc.timers = [];
+      disc.actors.forEach((a) => {
+        state.scene.remove(a.vrm.scene, a.look);
+        VRMUtils.deepDispose(a.vrm.scene);
+        a.tag.remove();
+      });
+      disc.actors = []; disc.speaker = null; disc.onStage = false;
+      if (!restore) return;
+      if (state.currentVRM) state.currentVRM.scene.visible = true;
+      else if (state.fallbackAvatar) state.fallbackAvatar.group.visible = true;
+      if (disc.saved) {
+        state.camera.position.copy(disc.saved.pos); state.controls.target.copy(disc.saved.target);
+        disc.saved = null;
+      }
+    }
+
+    // --- 8.2 每幀更新（姿勢、表情、口型、視線、名牌） ---
+    function actorPose(a, delta) {
+      const vrm = a.vrm, h = vrm.humanoid; if (!h) return;
+      const isV0 = vrm.meta?.metaVersion === '0';       // VRM 0.x：X、Z 軸旋轉取負
+      const pose = POSES.find((p) => p.id === a.pose) || POSES[0];
+      const k = Math.min(1, delta * 6), g = a.gaze;
+      POSE_BONES.forEach((n) => {
+        const t = pose.b[n] || [0, 0, 0], cur = (a.poseCur[n] ??= [0, 0, 0]);
+        for (let i = 0; i < 3; i++) cur[i] += (t[i] - cur[i]) * k;
+        let [x, y, z] = cur;
+        const f = n === 'head' ? 1 : n === 'neck' ? 0.5 : 0;
+        if (f) { x += f * (-g.y * 0.12 + (a.speaking ? Math.sin(state.time * 5 + a.phase) * 0.03 : 0)); y += f * g.x * 0.25; }
+        (h.getNormalizedBoneNode(n) || h.getRawBoneNode(n))?.rotation.set(isV0 ? -x : x, y, isV0 ? -z : z);
+      });
+      const sp = h.getNormalizedBoneNode('spine');      // 呼吸擺動
+      if (sp) { sp.rotation.z += Math.sin(state.time * 1.5 + a.phase) * 0.015; sp.rotation.x += Math.cos(state.time * 1.2 + a.phase) * 0.015; }
+      vrm.scene.updateMatrixWorld(true);
+    }
+
+    function actorLive(a, delta, time) {
+      const em = a.vrm.expressionManager; if (!em) return;
+      if (a.exprTarget !== 'neutral' && !a.speaking && performance.now() - a.exprTime > 9000) a.exprTarget = 'neutral';
+      const ke = Math.min(1, delta * 8);
+      ['happy', 'sad', 'angry', 'relaxed', 'surprised'].forEach((n) => {
+        const v = a.exprCur[n] ?? 0, t = a.exprTarget === n ? 1 : 0;
+        em.setValue(n, (a.exprCur[n] = v + (t - v) * ke));
+      });
+      const b = a.blink; let bv = 0;
+      if (!b.on && time > b.next) { b.on = true; b.t0 = time; }
+      if (b.on) { const p = (time - b.t0) / 0.18; if (p >= 1) { b.on = false; b.next = time + 2 + Math.random() * 4; } else bv = Math.sin(p * Math.PI); }
+      em.setValue('blink', bv);
+      const m = a.mouth, V = ['aa', 'ih', 'ou', 'ee', 'oh'];
+      if (a.speaking && time > m.next) { m.v = V[(Math.random() * 5) | 0]; m.amp = 0.3 + Math.random() * 0.5; m.next = time + 0.08 + Math.random() * 0.1; }
+      V.forEach((n) => {
+        const t = a.speaking && n === m.v ? m.amp : 0, c = m.cur[n] ?? 0;
+        em.setValue(n, (m.cur[n] = c + (t - c) * Math.min(1, delta * 18)));
+      });
+    }
+
+    function placeTag(a) {
+      const head = a.vrm.humanoid?.getNormalizedBoneNode('head'); if (!head) return;
+      head.getWorldPosition(_v3); _v3.y += 0.2; _v3.project(state.camera);
+      a.tag.style.display = _v3.z < 1 ? '' : 'none';
+      a.tag.style.transform = `translate(${(_v3.x * 0.5 + 0.5) * window.innerWidth}px, ${(-_v3.y * 0.5 + 0.5) * window.innerHeight}px) translate(-50%, -100%)`;
+      const on = disc.speaker === a;
+      if (on !== a.tagOn) {
+        a.tagOn = on;
+        a.tag.style.background = on ? a.color + 'ee' : 'rgba(15,23,42,.7)';
+        a.tag.style.color = on ? '#0f172a' : '#fff';
+        a.tag.style.borderColor = on ? a.color : a.color + '66';
+      }
+      if (a.tagName !== a.char.name) { a.tagName = a.char.name; a.tag.textContent = a.tagName; }
+    }
+
+    function updateActors(delta, time) {
+      if (!disc.actors.length) return;
+      const sp = disc.speaker, kg = Math.min(1, delta * 3);
+      disc.actors.forEach((a) => {
+        const watch = sp && sp !== a ? sp : null;       // 非發言者：看向發言者
+        a.gaze.x += ((watch ? THREE.MathUtils.clamp((watch.x - a.x) / 1.4, -1, 1) : 0) - a.gaze.x) * kg;
+        a.gaze.y += (0 - a.gaze.y) * kg;
+        a.look.position.lerp(_v3.set(watch ? watch.x : a.x, 1.45, watch ? watch.z + 0.2 : 2.5), kg);
+        a.vrm.update(delta);                            // update() 會重置骨骼，之後再套用姿勢
+        a.vrm.scene.position.set(a.x, 0, a.z);
+        a.vrm.scene.rotation.y = a.baseYaw + a.yaw;
+        actorPose(a, delta);
+        actorLive(a, delta, time);
+        placeTag(a);
+      });
+    }
+
+    // 動作標籤：討論中只處理「表情」與「姿勢」，姿勢 5 秒後回到自然垂放
+    function actorDo(a, act) {
+      if (act.expr) { a.exprTarget = act.expr; a.exprTime = performance.now(); }
+      if (act.pose && POSES.some((p) => p.id === act.pose)) {
+        a.pose = act.pose;
+        const t = ++a.poseToken;
+        disc.timers.push(setTimeout(() => { if (t === a.poseToken) a.pose = 'natural'; }, 5000));
+      }
+    }
+    function actorActions(a, actions) {
+      actions.forEach((act, i) => disc.timers.push(setTimeout(() => actorDo(a, act), i * 1600)));
+    }
+
+    // --- 8.3 語音（回傳 Promise，朗讀完畢才 resolve） ---
+    function speakActor(a, text, token) {
+      return new Promise((resolve) => {
+        const plain = speechText(text);
+        if (!plain) return resolve();
+        let done = false, guard = null;
+        const finish = () => {
+          if (done) return; done = true; clearTimeout(guard);
+          a.speaking = false; if (disc.cancelSpeech === finish) disc.cancelSpeech = null; resolve();
+        };
+        disc.cancelSpeech = finish;
+        a.speaking = true;
+        if (state.muted || !state.speechSynth) { guard = setTimeout(finish, Math.max(1500, plain.length * 200)); return; }
+        speakSequential(plain, a.char, () => !done && token === disc.token).then(finish);
+      });
+    }
+
+    // --- 8.4 LLM 發言 ---
+    async function askChar(c, messages, signal) {
+      if (c.provider === 'puter') return askPuter(c, messages);
+      const r = await fetch(`${(c.baseUrl || '').replace(/\/$/, '')}/chat/completions`, {
+        signal, method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(c.apiKey ? { Authorization: `Bearer ${c.apiKey}` } : {}) },
+        body: JSON.stringify({ model: c.model, messages, temperature: c.temperature })
+      });
+      if (!r.ok) throw new Error('HTTP Error: ' + r.status);
+      return (await r.json()).choices?.[0]?.message?.content || '';
+    }
+
+    function buildDiscMessages(a, topic, round, rounds) {
+      const c = a.char, others = disc.actors.filter((x) => x !== a).map((x) => x.char.name);
+      const sys = `你的名字是「${c.name}」。以下是你的角色設定（Persona），請始終以第一人稱、以此身份說話：
+${personaOf(c)}
+
+【情境】你正在與 ${others.join('、')} 以及使用者一起進行多人討論。
+討論話題：「${topic}」
+【發言規則】
+1. 使用繁體中文，維持角色的個性與說話風格。
+2. 每次發言 1～3 句、60 字以內，直接說出內容，只代表自己發言。
+3. 明確回應前一位發言者的觀點（同意、補充或禮貌地提出不同看法），並提出新的想法，讓討論往前推進。
+4. 可在句首放一個表情標籤：[開心] [難過] [生氣] [放鬆] [驚訝] [平靜]；需要手勢時可用 [動作:思考] [動作:揮手] [動作:舉手] 等。
+5. 使用者插話時，優先回應使用者的內容。`;
+      const log = disc.transcript.slice(-14).map((e) => `${e.name}：${e.text}`).join('\n');
+      let u = log ? `【目前的討論紀錄】\n${log}\n\n` : '';
+      u += disc.transcript.length ? `現在輪到你（${c.name}）發言，請接著上面的討論說下去。` : '你是第一位發言者，請針對話題開場並提出你的看法。';
+      if (disc.pendingUser) { u += '使用者剛剛插話了，請先回應使用者。'; disc.pendingUser = false; }
+      if (round === rounds - 1) u += '這是最後一輪，請簡短表達你的結論或最終立場。';
+      return [{ role: 'system', content: sys }, { role: 'user', content: u }];
+    }
+
+    function appendDiscMessage(a, text) {
+      const h = $('chat-history'), d = document.createElement('div');
+      d.className = 'flex gap-3 max-w-[85%]';
+      d.innerHTML = `<div class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold" style="background:${a.color}33;border:1px solid ${a.color}88;color:${a.color}">${escapeHTML([...a.char.name][0] || '?')}</div>
+        <div class="glass-card rounded-2xl rounded-tl-xs p-3.5 text-slate-200 leading-relaxed shadow-sm"><div class="text-[11px] font-semibold mb-1" style="color:${a.color}">${escapeHTML(a.char.name)}</div>${escapeHTML(text)}</div>`;
+      h.appendChild(d); h.scrollTop = h.scrollHeight;
+    }
+
+    // --- 8.5 討論主流程 ---
+    async function runDiscussion(topic, rounds, order) {
+      const token = ++disc.token;
+      disc.active = true; disc.transcript = []; disc.pendingUser = false; updateDiscUI();
+      appendChatMessage('system', `🗣 討論開始｜話題：${topic}｜參與者：${disc.actors.map((a) => a.char.name).join('、')}`);
+      let finished = false;
+      try {
+        outer: for (let r = 0; r < rounds; r++) {
+          const seq = disc.actors.slice();
+          if (order === 'random') for (let i = seq.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [seq[i], seq[j]] = [seq[j], seq[i]]; }
+          for (const a of seq) {
+            if (token !== disc.token) break outer;
+            $('typing-status-text').innerText = `${a.char.name} 思考中...`;
+            $('typing-indicator').classList.remove('hidden');
+            let reply;
+            try {
+              disc.abort = new AbortController();
+              reply = await askChar(a.char, buildDiscMessages(a, topic, r, rounds), disc.abort.signal);
+            } catch (e) {
+              if (token !== disc.token || e?.name === 'AbortError') break outer;
+              console.error('Discussion LLM error:', e);
+              appendChatMessage('system', `⚠ ${a.char.name} 無法回應（${errText(e)}），討論中斷。請檢查此角色的 LLM 設定。`);
+              break outer;
+            } finally { $('typing-indicator').classList.add('hidden'); }
+            if (token !== disc.token) break outer;
+            const { clean, actions } = extractActions(reply || '');
+            const text = clean.replace(/[*＊]+/g, '').trim().replace(new RegExp('^\\s*[「\\[【]?' + escapeRe(a.char.name) + '[」\\]】]?\\s*[:：]\\s*'), '');
+            if (!text) continue;
+            disc.transcript.push({ name: a.char.name, text });
+            appendDiscMessage(a, text);
+            showCaption(`${a.char.name}：${speechText(text)}`);
+            disc.speaker = a; actorActions(a, actions);
+            await speakActor(a, text, token);
+            if (disc.speaker === a) disc.speaker = null;
+            if (token === disc.token) await sleep(350);
+          }
+        }
+        finished = token === disc.token;
+      } finally {
+        if (finished) {
+          disc.active = false; disc.speaker = null;
+          appendChatMessage('system', '✅ 討論結束');
+          updateDiscUI();
+        }
+      }
+    }
+
+    function stopDiscussion() {
+      disc.token++;
+      disc.abort?.abort();
+      state.speechSynth?.cancel(); disc.cancelSpeech?.();
+      disc.timers.forEach(clearTimeout); disc.timers = [];
+      const was = disc.active;
+      disc.active = false; disc.speaker = null;
+      disc.actors.forEach((a) => { a.speaking = false; a.pose = 'natural'; });
+      $('typing-indicator').classList.add('hidden'); $('caption').classList.add('hidden');
+      if (was) appendChatMessage('system', '⏹ 討論已停止');
+      updateDiscUI();
+    }
+
+    // --- 8.6 討論面板 UI ---
+    function loadDiscPrefs() { try { return JSON.parse(localStorage.getItem(DISC_KEY)) || {}; } catch { return {}; } }
+    function saveDiscPrefs(p) { try { localStorage.setItem(DISC_KEY, JSON.stringify(p)); } catch (e) { /* 略過 */ } }
+
+    function updateDiscUI() {
+      const on = disc.active || disc.busy;
+      $('disc-start-btn').disabled = on;
+      $('disc-stop-btn').disabled = !disc.active;
+      $('disc-exit-btn').classList.toggle('hidden', !disc.onStage);
+      $('disc-exit-btn').disabled = disc.busy;
+      $('open-disc-btn').classList.toggle('ring-2', on);
+      $('open-disc-btn').classList.toggle('ring-brand-500', on);
+      $('disc-status').textContent = disc.busy ? '載入角色中…' : disc.active ? '討論進行中…' : disc.onStage ? '舞台待命：可修改話題或角色後再次開始。' : '';
+    }
+
+    function refreshDiscChecks() {
+      const boxes = [...document.querySelectorAll('#disc-chars input')], chosen = boxes.filter((b) => b.checked);
+      $('disc-count').textContent = `已選 ${chosen.length}/${DISC_MAX}`;
+      const used = {}, dup = [];
+      chosen.forEach((b) => {
+        const c = roster.list.find((x) => x.id === b.value), k = c?.presetId;
+        if (used[k]) dup.push(c.name); else used[k] = c?.name;
+      });
+      const w = $('disc-warn');
+      w.classList.toggle('hidden', !dup.length);
+      if (dup.length) w.textContent = `⚠ 「${dup.join('、')}」與其他已選角色使用相同的 VRM 模型，外觀會一樣。可在設定中為各角色指定不同模型。`;
+    }
+
+    function renderDiscChars() {
+      const box = $('disc-chars'), prefs = loadDiscPrefs();
+      const saved = (prefs.ids || []).filter((id) => roster.list.some((c) => c.id === id));
+      const pick = new Set(saved.length >= 2 ? saved : roster.list.slice(0, 2).map((c) => c.id));
+      box.innerHTML = '';
+      roster.list.forEach((c) => {
+        const preset = VRM_PRESETS.find((m) => m.id === c.presetId);
+        const row = document.createElement('label');
+        row.className = 'flex items-center gap-2.5 glass-card rounded-xl px-3 py-2 text-xs text-slate-200 cursor-pointer';
+        row.innerHTML = `<input type="checkbox" value="${escapeHTML(c.id)}" class="accent-brand-500" ${pick.has(c.id) ? 'checked' : ''}>
+          <span class="font-semibold">${escapeHTML(c.name)}</span>
+          <span class="text-[10px] text-slate-400 ml-auto truncate">${escapeHTML(preset ? preset.name : c.presetId)}</span>`;
+        row.querySelector('input').onchange = (e) => {
+          if (e.target.checked && document.querySelectorAll('#disc-chars input:checked').length > DISC_MAX) {
+            e.target.checked = false; alert(`最多同時選擇 ${DISC_MAX} 位角色。`);
+          }
+          refreshDiscChecks();
+        };
+        box.appendChild(row);
+      });
+      refreshDiscChecks();
+    }
+
+    async function onDiscStart() {
+      if (disc.active || disc.busy) return;
+      const topic = $('disc-topic').value.trim();
+      const ids = [...document.querySelectorAll('#disc-chars input:checked')].map((x) => x.value);
+      if (!topic) return alert('請先輸入討論話題。');
+      if (ids.length < 2) return alert('請至少選擇 2 位角色。');
+      const chars = ids.map((id) => roster.list.find((c) => c.id === id)).filter(Boolean);
+      const rounds = parseInt($('disc-rounds').value, 10) || 3, order = $('disc-order').value;
+      saveDiscPrefs({ topic, ids, rounds, order });
+      $('disc-modal').classList.add('opacity-0', 'pointer-events-none');
+
+      state.speechToken++; state.speechSynth?.cancel(); state.isSpeaking = false;   // 停掉單人模式的朗讀
+      disc.busy = true; updateDiscUI();
+      try {
+        const same = disc.onStage && disc.actors.map((a) => a.char.id).join() === ids.join();
+        if (!same) await enterStage(chars);
+      } catch (e) {
+        disc.busy = false; updateDiscUI();
+        return alert('無法開始討論：' + errText(e));
+      }
+      disc.busy = false;
+      await runDiscussion(topic, rounds, order);
+    }
+
+    function setupDiscussionUI() {
+      const modal = $('disc-modal'), prefs = loadDiscPrefs();
+      if (prefs.topic) $('disc-topic').value = prefs.topic;
+      if (prefs.rounds) $('disc-rounds').value = String(prefs.rounds);
+      if (prefs.order) $('disc-order').value = prefs.order;
+      $('open-disc-btn').onclick = () => { renderDiscChars(); updateDiscUI(); modal.classList.remove('opacity-0', 'pointer-events-none'); };
+      $('close-disc-btn').onclick = () => modal.classList.add('opacity-0', 'pointer-events-none');
+      $('disc-start-btn').onclick = onDiscStart;
+      $('disc-stop-btn').onclick = stopDiscussion;
+      $('disc-exit-btn').onclick = () => {
+        stopDiscussion(); exitStage(true); updateDiscUI();
+        modal.classList.add('opacity-0', 'pointer-events-none');
+        appendChatMessage('system', '已返回單人模式');
+      };
+      updateDiscUI();
+    }
+
+    // =====================================================================
+    // 9. 錄影（移植自「錄聲音與影像的JS.js」）
+    //    以 getDisplayMedia 擷取畫面 + 分頁音訊，MediaRecorder 輸出 MP4（不支援時退回 WebM）
+    // =====================================================================
+    const rec = { recorder: null, chunks: [], stream: null, t0: 0, timer: null };
+    const REC_MIMES = ['video/mp4;codecs=h264', 'video/webm;codecs=h264', 'video/webm;codecs=vp9,opus', 'video/webm'];
+
+    function stopTracks(stream) { stream?.getTracks().forEach((t) => t.stop()); }
+
+    function paintRec(on) {
+      $('rec-icon').className = on ? 'fa-solid fa-stop text-lg text-red-500 animate-pulse' : 'fa-solid fa-circle text-lg text-red-400';
+      $('rec-label').textContent = on ? '00:00' : '錄影';
+      $('rec-btn').title = on ? '停止錄影並下載' : '錄製畫面與聲音';
+    }
+
+    async function startRecording() {
+      if (rec.recorder) return;
+      let stream;
+      try {
+        // 1. 同時要求影像與音訊（audio: true 才會出現「分享分頁音訊」選項）
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { width: 1920, height: 1080, frameRate: 30 },
+          audio: true,
+          preferCurrentTab: true, selfBrowserSurface: 'include'   // Chrome：預設選取目前分頁（其他瀏覽器會忽略）
+        });
+      } catch (err) {
+        console.error('啟動錄製失敗:', err);
+        if (err?.name !== 'NotAllowedError') alert('無法開始錄影：' + errText(err));
+        return;
+      }
+      // 2. 檢查使用者是否有勾選分享聲音
+      if (!stream.getAudioTracks().length) {
+        if (!confirm('沒有偵測到分頁音訊（開始時未勾選「分享分頁音訊」）。\n\n按「確定」＝只錄影像（沒有聲音）\n按「取消」＝放棄，請重新開始並勾選「分享分頁音訊」')) {
+          stopTracks(stream); return;
+        }
+      }
+      // 3. 優先 MP4 (H.264)，不支援時退回 WebM
+      const mime = REC_MIMES.find((m) => MediaRecorder.isTypeSupported(m)) || '';
+      try {
+        rec.recorder = mime ? new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000 }) : new MediaRecorder(stream);
+      } catch (e) { stopTracks(stream); return alert('此瀏覽器無法建立錄影器：' + errText(e)); }
+      const type = rec.recorder.mimeType || mime || 'video/webm', ext = /mp4/i.test(type) ? 'mp4' : 'webm';
+      rec.stream = stream; rec.chunks = [];
+
+      rec.recorder.ondataavailable = (e) => { if (e.data.size > 0) rec.chunks.push(e.data); };
+      // 4. 錄製結束時，自動導出檔案
+      rec.recorder.onstop = () => {
+        const blob = new Blob(rec.chunks, { type });
+        const url = URL.createObjectURL(blob), a = document.createElement('a');
+        a.href = url; a.download = `vtuber_video_${Date.now()}.${ext}`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        stopTracks(rec.stream);
+        clearInterval(rec.timer); rec.recorder = null; rec.stream = null; rec.chunks = [];
+        paintRec(false);
+      };
+      rec.recorder.onerror = (e) => { console.error('MediaRecorder error:', e); stopRecording(); };
+      // 使用者按瀏覽器的「停止共用」時，同步結束錄影
+      stream.getVideoTracks()[0].addEventListener('ended', stopRecording);
+
+      rec.recorder.start(1000);
+      rec.t0 = Date.now(); paintRec(true);
+      rec.timer = setInterval(() => {
+        const s = Math.floor((Date.now() - rec.t0) / 1000);
+        $('rec-label').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+      }, 500);
+      console.log('錄製已開始...', type);
+    }
+
+    function stopRecording() {
+      if (rec.recorder && rec.recorder.state !== 'inactive') rec.recorder.stop();
+    }
+
+    function setupRecorderUI() {
+      if (!navigator.mediaDevices?.getDisplayMedia || typeof MediaRecorder === 'undefined') {
+        $('rec-btn').classList.add('opacity-40');
+        $('rec-btn').onclick = () => alert('此瀏覽器不支援螢幕錄影（需要 getDisplayMedia 與 MediaRecorder）。建議使用桌面版 Chrome 或 Edge。');
+        return;
+      }
+      $('rec-btn').onclick = () => (rec.recorder ? stopRecording() : startRecording());
+    }
+
+    // Initialize Application
+    window.onload = () => {
+      init3D();
+      initSpeech();
+      setupUIEvents();
+      initCharacters(); // 載入角色存檔並載入其 VRM
+      setupDiscussionUI();
+      setupRecorderUI();
+    };
+  </script>
+</body>
+</html>
