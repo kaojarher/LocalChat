@@ -341,12 +341,21 @@
 
           </div>
 
+          <div id="puter-model-row" class="space-y-2">
+            <label class="text-xs text-slate-300 block">Puter 模型（留空＝Puter 官方預設）</label>
+            <div class="flex gap-2">
+              <select id="puter-model-select" class="flex-1 glass-input rounded-xl px-3 py-2 text-xs bg-slate-900"></select>
+              <button id="puter-refresh-btn" type="button" class="px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-white/10 transition disabled:opacity-50" title="從 Puter 載入可用模型清單"><i class="fa-solid fa-rotate"></i></button>
+            </div>
+            <p class="text-[10px] text-slate-400">Puter 免 API Key；首次對話會跳出 Puter 登入視窗（用量由使用者自己的 Puter 帳號負擔）。Temperature 使用模型預設值。</p>
+          </div>
+
           <div>
             <label class="text-xs text-slate-300 mb-1 block">Model Name</label>
             <input type="text" id="api-model-name" value="hichu" placeholder="gpt-4o-mini, llama3, qwen2.5" class="glass-input w-full rounded-xl px-3 py-2 text-xs">
           </div>
 
-          <div>
+          <div id="temp-row">
             <label class="text-xs text-slate-300 mb-1 block">Temperature (0–2)</label>
             <input type="number" id="api-temperature" min="0" max="2" step="0.1" value="0.7" class="glass-input w-full rounded-xl px-3 py-2 text-xs">
           </div>
@@ -751,15 +760,15 @@
       { id:'tpose',     zh:'T-Pose',   d:'標準 T 字姿勢', b:{} },
       { id:'waveR',     zh:'右手揮手', d:'右手舉高打招呼', b:{ ...DOWN, rightUpperArm:[0,0,-.9], rightLowerArm:[0,0,-.7] } },
       { id:'waveL',     zh:'左手揮手', d:'左手舉高打招呼', b:{ ...DOWN, leftUpperArm:[0,0,.9], leftLowerArm:[0,0,.7] } },
-      { id:'cheer',     zh:'雙手歡呼', d:'雙手向上舉高', b:{ leftUpperArm:[0,0,2.4], rightUpperArm:[0,0,-2.4], head:[-.15,0,0] } },
-      { id:'crossed',   zh:'雙手交叉', d:'雙臂交叉於胸前', b:{ leftUpperArm:[.5,.3,-.6], rightUpperArm:[.5,-.3,.6], leftLowerArm:[0,.8,-.8], rightLowerArm:[0,-.8,.8] } },
+      { id:'cheer',     zh:'雙手歡呼', d:'雙手向上舉高', b:{ leftUpperArm:[0,0,1.35], rightUpperArm:[0,0,-1.35], head:[-.15,0,0] } },
+      { id:'crossed',   zh:'雙手交叉', d:'雙臂交叉於胸前', b:{ leftUpperArm:[-.7,-1,-1.9], rightUpperArm:[-.6,1,1.9], leftLowerArm:[0,-1.3,-.25], rightLowerArm:[0,1.3,.25] } },
       { id:'thinking',  zh:'思考',     d:'右手撐下巴沉思', b:{ ...DOWN, rightUpperArm:[.6,-.3,.8], rightLowerArm:[0,0,1.8], head:[.1,.15,.1] } },
       { id:'hips',      zh:'叉腰',     d:'雙手叉腰', b:{ leftUpperArm:[0,0,-.8], rightUpperArm:[0,0,.8], leftLowerArm:[0,0,-1.2], rightLowerArm:[0,0,1.2] } },
       { id:'handsBack', zh:'雙手背後', d:'雙手交握在背後', b:{ leftUpperArm:[0,.6,-1.25], rightUpperArm:[0,-.6,1.25], leftLowerArm:[0,.6,-.15], rightLowerArm:[0,-.6,.15] } },
       { id:'reach',     zh:'雙手前伸', d:'雙臂向前平舉', b:{ leftUpperArm:[0,-1.5,0], rightUpperArm:[0,1.5,0] } },
       { id:'pray',      zh:'合十祈禱', d:'雙手於胸前合十', b:{ leftUpperArm:[0,-.4,-1.1], rightUpperArm:[0,.4,1.1], leftLowerArm:[0,-1.9,0], rightLowerArm:[0,1.9,0], head:[.1,0,0] } },
       { id:'shy',       zh:'害羞',     d:'雙手在身前、微低頭歪頭', b:{ leftUpperArm:[0,-.25,-1.25], rightUpperArm:[0,.25,1.25], leftLowerArm:[0,-1,0], rightLowerArm:[0,1,0], head:[.25,0,.12] } },
-      { id:'raiseHand', zh:'舉手發問', d:'右手高舉', b:{ ...DOWN, rightUpperArm:[0,0,-2.5], rightLowerArm:[0,0,-.1] } },
+      { id:'raiseHand', zh:'舉手發問', d:'右手高舉', b:{ ...DOWN, rightUpperArm:[0,0,-1.45], rightLowerArm:[0,0,-.1] } },
       { id:'bow',       zh:'鞠躬',     d:'身體前傾致意', b:{ ...DOWN, spine:[.45,0,0], head:[.2,0,0] } }
     ];
     const POSE_BONES = ['leftShoulder','rightShoulder','leftUpperArm','rightUpperArm','leftLowerArm','rightLowerArm','leftHand','rightHand','spine','chest','neck','head'];
@@ -1373,7 +1382,7 @@ ${personaOf(c)}
       } catch (e) { /* 無存檔 */ }
       if (!activeChar()) {
         // 首次啟動：以頁面原有預設值建立第一個角色
-        const c = newChar({ name: '角色 1', provider: 'openai', model: $('api-model-name').value, systemPrompt: $('system-prompt').value });
+        const c = newChar({ name: '角色 1', provider: 'puter', model: '', systemPrompt: $('system-prompt').value });
         roster.list = [c]; roster.activeId = c.id;
       }
     }
@@ -1400,6 +1409,7 @@ ${personaOf(c)}
       $('api-base-url').value = c.baseUrl;
       $('api-key').value = c.apiKey;
       $('api-model-name').value = c.model;
+      syncPuterSelect(c.model);
       $('api-temperature').value = c.temperature;
       $('system-prompt').value = c.systemPrompt;
       $('tts-rate').value = c.rate; $('tts-rate-val').innerText = c.rate;
@@ -1429,13 +1439,66 @@ ${personaOf(c)}
     function toggleProvider(c) {
       const puterOn = c.provider === 'puter';
       $('openai-fields').classList.toggle('hidden', puterOn);
-      $('api-model-name').placeholder = puterOn ? '留空＝Puter 預設模型（或填 gpt-4o-mini）' : 'gpt-4o-mini, llama3, qwen2.5';
+      $('puter-model-row').classList.toggle('hidden', !puterOn);
+      $('temp-row').classList.toggle('hidden', puterOn);
+      $('api-model-name').placeholder = puterOn ? '留空＝Puter 預設模型，或自行輸入模型 ID' : 'gpt-4o-mini, llama3, qwen2.5';
     }
+    // --- Puter AI：預設設定（官方文件：未指定 model 時使用 gpt-5-nano；未指定 temperature 時使用模型預設）---
+    const PUTER_MODELS = [
+      ['', 'Puter 預設模型（留空・官方文件為 gpt-5-nano）'],
+      ['gpt-5-nano', 'GPT-5 nano（快速・輕量）'],
+      ['openai/gpt-5.4-nano', 'GPT-5.4 nano'],
+      ['gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite'],
+      ['z-ai/glm-4.7-flash', 'GLM 4.7 Flash'],
+      ['anthropic/claude-sonnet-4-6', 'Claude Sonnet 4.6（品質高・較耗額度）']
+    ];
+    function puterSelectHas(v) { return [...$('puter-model-select').options].some((o) => o.value === v); }
+    function syncPuterSelect(model) {
+      const sel = $('puter-model-select');
+      if (model && !puterSelectHas(model)) {
+        const o = document.createElement('option'); o.value = model; o.textContent = '自訂：' + model; sel.appendChild(o);
+      }
+      sel.value = model || '';
+    }
+    async function loadPuterModels() {
+      const btn = $('puter-refresh-btn');
+      if (typeof puter === 'undefined' || !puter.ai?.listModels) return alert('Puter.js 未載入或不支援 listModels（需可連線 js.puter.com）');
+      btn.disabled = true;
+      try {
+        const r = await puter.ai.listModels();
+        const pick = (m) => (typeof m === 'string' ? m : (m?.id || m?.model || m?.name));
+        let ids = Array.isArray(r) ? r.map(pick) : Object.values(r || {}).flat().map(pick);
+        ids = [...new Set(ids.filter(Boolean))].sort();
+        if (!ids.length) throw new Error('清單為空');
+        const sel = $('puter-model-select'), cur = activeChar()?.model || '';
+        sel.querySelectorAll('optgroup').forEach((g) => g.remove());
+        const grp = document.createElement('optgroup'); grp.label = `Puter 即時清單（${ids.length}）`;
+        ids.forEach((id) => { const o = document.createElement('option'); o.value = id; o.textContent = id; grp.appendChild(o); });
+        sel.appendChild(grp); syncPuterSelect(cur);
+      } catch (e) { alert('載入 Puter 模型清單失敗：' + errText(e)); }
+      finally { btn.disabled = false; }
+    }
+    function initPuterUI() {
+      const sel = $('puter-model-select');
+      PUTER_MODELS.forEach(([v, label]) => { const o = document.createElement('option'); o.value = v; o.textContent = label; sel.appendChild(o); });
+      sel.onchange = () => { $('api-model-name').value = sel.value; syncForm(); };
+      $('puter-refresh-btn').onclick = loadPuterModels;
+    }
+    const errText = (e) => e?.message || e?.error?.message || (typeof e === 'string' ? e : (() => { try { return JSON.stringify(e); } catch { return String(e); } })());
+
     async function askPuter(c, messages) {
       if (typeof puter === 'undefined') throw new Error('Puter.js 未載入（需可連線 js.puter.com）');
-      const opt = { temperature: c.temperature };
-      if (c.model) opt.model = c.model;
-      const r = await puter.ai.chat(messages, opt);
+      // 不傳 temperature：沿用模型預設（部分模型不接受自訂值）；model 留空＝Puter 預設模型
+      const run = (opt) => (Object.keys(opt).length ? puter.ai.chat(messages, opt) : puter.ai.chat(messages));
+      let r;
+      try {
+        r = await run(c.model ? { model: c.model } : {});
+      } catch (e) {
+        if (!c.model) throw e;
+        console.warn('Puter 指定模型失敗，改用預設模型：', c.model, e);
+        appendChatMessage('system', `⚠ 模型「${c.model}」無法使用（${errText(e)}），已改用 Puter 預設模型`);
+        r = await run({});
+      }
       let t = typeof r === 'string' ? r : (r?.message?.content ?? r?.text);
       if (Array.isArray(t)) t = t.map((x) => x.text || '').join('');
       return t || 'No response received.';
@@ -1453,6 +1516,7 @@ ${personaOf(c)}
       loadPresetVRM(c.presetId);
     }
     function initCharacters() {
+      initPuterUI();
       initStage();
       loadChars();
       renderSelect();
@@ -1545,7 +1609,7 @@ ${personaOf(c)}
 
       } catch (err) {
         console.error("Chat API Error:", err);
-        const errorMsg = `[Error] ${c.name} 無法連線至 LLM（${c.provider === 'puter' ? 'Puter AI' : c.baseUrl}）：${err.message}。請檢查此角色的 Base URL / API Key / Model。`;
+        const errorMsg = `[Error] ${c.name} 無法連線至 LLM（${c.provider === 'puter' ? 'Puter AI' : c.baseUrl}）：${errText(err)}。請檢查此角色的 LLM 設定。`;
         if (c.id === roster.activeId) appendChatMessage('assistant', errorMsg);
         if (introAsk) { // LLM 離線時，自我介紹直接取自角色設定
           const intro = localIntro(c);
