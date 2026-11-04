@@ -6,6 +6,8 @@
   <title>Local Chat VRM Avatar</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Puter.js（免 API Key 的 AI） -->
+  <script src="https://js.puter.com/v2/"></script>
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <!-- Google Fonts (Inter & Outfit) -->
@@ -113,6 +115,7 @@
 <body class="bg-slate-950 text-slate-100 font-sans h-screen w-screen overflow-hidden select-none dark">
 
   <!-- 3D Canvas Background -->
+  <div id="bg-layer" class="fixed inset-0 z-0 pointer-events-none"><video id="bg-video" autoplay playsinline muted class="hidden absolute inset-0 w-full h-full object-cover"></video></div>
   <div id="canvas-container"></div>
 
   <!-- Loading Overlay -->
@@ -235,6 +238,20 @@
         </button>
       </div>
 
+      <!-- 0. Character Roster -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Characters（每個角色獨立 LLM / 人設 / 聲音 / 對話紀錄）</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          <div class="flex gap-2">
+            <select id="char-select" class="flex-1 text-xs py-2 px-2 rounded-xl bg-slate-900 text-slate-200 border border-white/10 focus:outline-none focus:border-brand-500"></select>
+            <button id="char-add-btn" class="px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-white/10 transition" title="新增角色"><i class="fa-solid fa-plus"></i></button>
+            <button id="char-del-btn" class="px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-white/10 transition" title="刪除角色"><i class="fa-solid fa-trash"></i></button>
+          </div>
+          <input type="text" id="char-name" placeholder="角色名稱" class="glass-input w-full rounded-xl px-3 py-2 text-xs">
+          <p class="text-[10px] text-slate-400">以下 VRM、LLM、Persona、TTS 設定皆屬於目前選取的角色，修改後自動儲存。</p>
+        </div>
+      </div>
+
       <!-- 1. VRM Model Loader Section -->
       <div class="space-y-3">
         <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">VRM Model Settings</label>
@@ -259,11 +276,58 @@
         </div>
       </div>
 
+      <!-- Outfit Color -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Outfit Color（衣服顏色・依角色儲存）</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          <select id="outfit-target" class="glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900"></select>
+          <div class="flex items-center gap-2">
+            <input type="color" id="outfit-color" value="#ffffff" class="h-9 w-14 rounded-lg bg-transparent border border-white/15 cursor-pointer">
+            <button id="outfit-reset-btn" class="flex-1 text-xs py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/5 transition">還原原始顏色</button>
+          </div>
+          <p class="text-[10px] text-slate-400">「全部衣物」依材質名稱自動偵測（Tops / Bottoms / Shoes / Dress 等）；也可單選任一材質。顏色以乘色方式套用，原本越淺的衣服效果越明顯。</p>
+        </div>
+      </div>
+
+      <!-- Background / Stage -->
+      <div class="space-y-3">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Background / Stage（背景）</label>
+        <div class="glass-card p-4 rounded-2xl space-y-3">
+          <select id="bg-mode" class="glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900">
+            <option value="default">預設（深色）</option>
+            <option value="color">純色</option>
+            <option value="image">上傳圖片（平面背景）</option>
+            <option value="panorama">上傳 360° 全景圖（three.js 3D 背景）</option>
+            <option value="stars">3D 星空粒子（three.js）</option>
+            <option value="stage">3D 舞台格線（three.js）</option>
+            <option value="camera">手機相機（即時影像）</option>
+          </select>
+          <select id="bg-facing" class="hidden glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900"><option value="environment">後置鏡頭</option><option value="user">前置鏡頭（鏡像）</option></select>
+          <input type="color" id="bg-color" value="#0f172a" class="hidden h-9 w-14 rounded-lg bg-transparent border border-white/15 cursor-pointer">
+          <div id="bg-file-row" class="hidden flex gap-2 items-center">
+            <label class="flex-1 text-center text-xs py-2 rounded-xl bg-brand-500/20 hover:bg-brand-500/30 text-brand-500 border border-brand-500/30 cursor-pointer transition">選擇圖片
+              <input type="file" id="bg-file" accept="image/*" class="hidden">
+            </label>
+            <button id="bg-clear-btn" class="px-3 py-2 text-xs rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/5">清除</button>
+          </div>
+          <p class="text-[10px] text-slate-400">全景圖需為 2:1 等距柱狀投影（equirectangular），拖曳旋轉鏡頭時背景會跟著轉動。</p>
+        </div>
+      </div>
+
       <!-- 2. LLM API Endpoint Settings -->
       <div class="space-y-3">
         <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">LLM Provider Configuration</label>
         <div class="glass-card p-4 rounded-2xl space-y-3">
           
+          <div>
+            <label class="text-xs text-slate-300 mb-1 block">AI Provider</label>
+            <select id="api-provider" class="glass-input w-full rounded-xl px-3 py-2 text-xs bg-slate-900">
+              <option value="puter">Puter AI（免 API Key・新角色預設）</option>
+              <option value="openai">OpenAI 相容 API（Ollama / LM Studio / OpenAI…）</option>
+            </select>
+          </div>
+
+          <div id="openai-fields" class="space-y-3">
           <div>
             <label class="text-xs text-slate-300 mb-1 block">API Base URL</label>
             <input type="text" id="api-base-url" value="http://localhost:11434/v1" placeholder="http://localhost:11434/v1 or https://api.openai.com/v1" class="glass-input w-full rounded-xl px-3 py-2 text-xs">
@@ -275,9 +339,16 @@
             <input type="password" id="api-key" placeholder="sk-..." class="glass-input w-full rounded-xl px-3 py-2 text-xs">
           </div>
 
+          </div>
+
           <div>
             <label class="text-xs text-slate-300 mb-1 block">Model Name</label>
             <input type="text" id="api-model-name" value="hichu" placeholder="gpt-4o-mini, llama3, qwen2.5" class="glass-input w-full rounded-xl px-3 py-2 text-xs">
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-300 mb-1 block">Temperature (0–2)</label>
+            <input type="number" id="api-temperature" min="0" max="2" step="0.1" value="0.7" class="glass-input w-full rounded-xl px-3 py-2 text-xs">
           </div>
 
         </div>
@@ -344,32 +415,7 @@
 
       <p class="text-xs text-slate-300">請選擇角色的姿勢動作 (Select Pose Preset)：</p>
 
-      <div class="grid grid-cols-2 gap-2.5">
-        <button id="pose-btn-natural" onclick="window.applyVRMPose('natural')" class="glass-card hover:bg-brand-600/30 hover:border-brand-500/50 p-3 rounded-xl text-left text-xs font-medium text-slate-200 transition flex items-center gap-2.5 border-brand-500/80 bg-brand-500/10">
-          <i class="fa-solid fa-person text-brand-400 text-base"></i>
-          <div>
-            <div class="font-bold flex items-center gap-1.5">
-              Natural Rest 
-              <span class="text-[9px] bg-brand-500 text-white px-1.5 py-0.2 rounded-full font-normal">自然垂放</span>
-            </div>
-            <div class="text-[10px] text-slate-400">雙手自然放鬆垂在兩側</div>
-          </div>
-        </button>
-
-        <button id="pose-btn-waving" onclick="window.applyVRMPose('waving')" class="glass-card hover:bg-brand-600/30 hover:border-brand-500/50 p-3 rounded-xl text-left text-xs font-medium text-slate-200 transition flex items-center gap-2.5">
-          <i class="fa-solid fa-hand-wave text-amber-400 text-base"></i>
-          <div>
-            <div class="font-bold">Friendly Wave</div>
-            <div class="text-[10px] text-slate-400">右手舉起親切打招呼</div>
-          </div>
-        </button>
-
-
-
-        <button id="pose-btn-reset" onclick="window.applyVRMPose('reset')" class="col-span-2 glass-card hover:bg-rose-600/20 hover:border-rose-500/40 p-2.5 rounded-xl text-center text-xs text-rose-300 font-medium transition mt-1">
-          重置為標準 T-Pose (Reset Standard)
-        </button>
-      </div>
+      <div id="pose-grid" class="grid grid-cols-2 gap-2 max-h-[55vh] overflow-y-auto pr-1"></div>
     </div>
   </div>
 
@@ -647,7 +693,8 @@
           state.currentVRM = vrm;
 
           // Apply natural posture by default to fix T-pose arms
-          window.applyVRMPose('natural');
+          window.applyVRMPose(activeChar()?.pose || 'natural');
+          applyOutfit(); refreshOutfitUI();
 
           // Adjust Camera target nicely at chest/waist focal point above chat box
           state.controls.target.set(0.0, 1.15, 0.0);
@@ -690,94 +737,65 @@
       }
     };
 
-    // Set Humanoid Pose Presets
-    window.applyVRMPose = function(poseName) {
-      state.activePose = poseName;
+    // Set Humanoid Pose Presets（14 種；數值為 [x,y,z] 弧度，VRM 1.0 座標，VRM 0.x 自動換算）
+    const DOWN = { leftUpperArm:[.1,0,-1.3], rightUpperArm:[.1,0,1.3], leftLowerArm:[0,0,-.15], rightLowerArm:[0,0,.15] };
+    const POSES = [
+      { id:'natural',   zh:'自然垂放', d:'雙手自然垂在兩側', b:{ ...DOWN } },
+      { id:'tpose',     zh:'T-Pose',   d:'標準 T 字姿勢', b:{} },
+      { id:'waveR',     zh:'右手揮手', d:'右手舉高打招呼', b:{ ...DOWN, rightUpperArm:[0,0,-.9], rightLowerArm:[0,0,-.7] } },
+      { id:'waveL',     zh:'左手揮手', d:'左手舉高打招呼', b:{ ...DOWN, leftUpperArm:[0,0,.9], leftLowerArm:[0,0,.7] } },
+      { id:'cheer',     zh:'雙手歡呼', d:'雙手向上舉高', b:{ leftUpperArm:[0,0,2.4], rightUpperArm:[0,0,-2.4], head:[-.15,0,0] } },
+      { id:'crossed',   zh:'雙手交叉', d:'雙臂交叉於胸前', b:{ leftUpperArm:[.5,.3,-.6], rightUpperArm:[.5,-.3,.6], leftLowerArm:[0,.8,-.8], rightLowerArm:[0,-.8,.8] } },
+      { id:'thinking',  zh:'思考',     d:'右手撐下巴沉思', b:{ ...DOWN, rightUpperArm:[.6,-.3,.8], rightLowerArm:[0,0,1.8], head:[.1,.15,.1] } },
+      { id:'hips',      zh:'叉腰',     d:'雙手叉腰', b:{ leftUpperArm:[0,0,-.8], rightUpperArm:[0,0,.8], leftLowerArm:[0,0,-1.2], rightLowerArm:[0,0,1.2] } },
+      { id:'handsBack', zh:'雙手背後', d:'雙手交握在背後', b:{ leftUpperArm:[0,.6,-1.25], rightUpperArm:[0,-.6,1.25], leftLowerArm:[0,.6,-.15], rightLowerArm:[0,-.6,.15] } },
+      { id:'reach',     zh:'雙手前伸', d:'雙臂向前平舉', b:{ leftUpperArm:[0,-1.5,0], rightUpperArm:[0,1.5,0] } },
+      { id:'pray',      zh:'合十祈禱', d:'雙手於胸前合十', b:{ leftUpperArm:[0,-.4,-1.1], rightUpperArm:[0,.4,1.1], leftLowerArm:[0,-1.9,0], rightLowerArm:[0,1.9,0], head:[.1,0,0] } },
+      { id:'shy',       zh:'害羞',     d:'雙手在身前、微低頭歪頭', b:{ leftUpperArm:[0,-.25,-1.25], rightUpperArm:[0,.25,1.25], leftLowerArm:[0,-1,0], rightLowerArm:[0,1,0], head:[.25,0,.12] } },
+      { id:'raiseHand', zh:'舉手發問', d:'右手高舉', b:{ ...DOWN, rightUpperArm:[0,0,-2.5], rightLowerArm:[0,0,-.1] } },
+      { id:'bow',       zh:'鞠躬',     d:'身體前傾致意', b:{ ...DOWN, spine:[.45,0,0], head:[.2,0,0] } }
+    ];
+    const POSE_BONES = ['leftShoulder','rightShoulder','leftUpperArm','rightUpperArm','leftLowerArm','rightLowerArm','leftHand','rightHand','spine','chest','neck','head'];
 
-      // Update Active UI Button highlights
-      const poseBtns = ['natural', 'waving', 'thinking', 'crossed', 'reset'];
-      poseBtns.forEach(p => {
-        const btn = document.getElementById(`pose-btn-${p}`);
-        if (btn) {
-          if (p === poseName) {
-            btn.classList.add('border-brand-500/80', 'bg-brand-500/10');
-          } else {
-            btn.classList.remove('border-brand-500/80', 'bg-brand-500/10');
-          }
-        }
+    window.applyVRMPose = function(id) {
+      state.activePose = POSES.some((p) => p.id === id) ? id : 'natural';
+      document.querySelectorAll('#pose-grid [data-pose]').forEach((btn) => {
+        const on = btn.dataset.pose === state.activePose;
+        btn.classList.toggle('border-brand-500/80', on);
+        btn.classList.toggle('bg-brand-500/10', on);
       });
-
-      // Apply bones immediately
       updateVRMBonePose();
     };
 
-    function updateVRMBonePose() {
-      if (!state.currentVRM || !state.currentVRM.humanoid) return;
-      const humanoid = state.currentVRM.humanoid;
-
-      // Helper to fetch normalized bone node for consistent VRM humanoid transforms
-      const getBone = (boneName) => {
-        return humanoid.getNormalizedBoneNode(boneName) || humanoid.getRawBoneNode(boneName);
-      };
-
-      const leftShoulder = getBone('leftShoulder');
-      const rightShoulder = getBone('rightShoulder');
-      const leftUpperArm = getBone('leftUpperArm');
-      const rightUpperArm = getBone('rightUpperArm');
-      const leftLowerArm = getBone('leftLowerArm');
-      const rightLowerArm = getBone('rightLowerArm');
-      const leftHand = getBone('leftHand');
-      const rightHand = getBone('rightHand');
-
-      // Reset base arm rotations to Identity
-      [leftShoulder, rightShoulder, leftUpperArm, rightUpperArm, leftLowerArm, rightLowerArm, leftHand, rightHand].forEach(node => {
-        if (node) node.rotation.set(0, 0, 0);
+    function buildPoseGrid() {
+      const grid = document.getElementById('pose-grid');
+      POSES.forEach((p) => {
+        const btn = document.createElement('button');
+        btn.dataset.pose = p.id;
+        btn.className = 'glass-card hover:bg-brand-600/30 hover:border-brand-500/50 p-2.5 rounded-xl text-left text-xs text-slate-200 transition';
+        btn.innerHTML = `<div class="font-bold">${p.zh}</div><div class="text-[10px] text-slate-400">${p.d}</div>`;
+        btn.onclick = () => {
+          window.applyVRMPose(p.id);
+          const c = activeChar(); if (c) { c.pose = p.id; saveChars(); }
+        };
+        grid.appendChild(btn);
       });
+      window.applyVRMPose(state.activePose);
+    }
 
-      switch(state.activePose) {
-        case 'natural': {
-          // 自然垂放：修正 three-vrm 座標系 (左手 -Z / 右手 +Z)
-          if (leftUpperArm) {
-            leftUpperArm.rotation.set(0.1, 0, -1.3);
-          }
-          if (rightUpperArm) {
-            rightUpperArm.rotation.set(0.1, 0, 1.3);
-          }
-          if (leftLowerArm) {
-            leftLowerArm.rotation.set(0, 0, -0.15);
-          }
-          if (rightLowerArm) {
-            rightLowerArm.rotation.set(0, 0, 0.15);
-          }
-          break;
-        }
-        case 'waving': {
-          if (leftUpperArm) leftUpperArm.rotation.set(0.1, 0, -1.3);
-          if (rightUpperArm) rightUpperArm.rotation.set(0.2, 0, 0.4);
-          if (rightLowerArm) rightLowerArm.rotation.set(0, 0, 1.4);
-          break;
-        }
-        case 'thinking': {
-          if (leftUpperArm) leftUpperArm.rotation.set(0.1, 0, -1.3);
-          if (rightUpperArm) rightUpperArm.rotation.set(0.6, -0.3, 0.8);
-          if (rightLowerArm) rightLowerArm.rotation.set(0, 0, 1.8);
-          break;
-        }
-        case 'crossed': {
-          if (leftUpperArm) leftUpperArm.rotation.set(0.5, 0.3, -0.6);
-          if (rightUpperArm) rightUpperArm.rotation.set(0.5, -0.3, 0.6);
-          if (leftLowerArm) leftLowerArm.rotation.set(0, 0.8, -0.8);
-          if (rightLowerArm) rightLowerArm.rotation.set(0, -0.8, 0.8);
-          break;
-        }
-        case 'reset':
-        default:
-          // Keep default T-pose
-          break;
+    function updateVRMBonePose() {
+      const vrm = state.currentVRM;
+      if (!vrm || !vrm.humanoid) return;
+      const h = vrm.humanoid;
+      const get = (n) => h.getNormalizedBoneNode(n) || h.getRawBoneNode(n);
+      // VRM 0.x 骨架軸向與 1.0 相反：X、Z 軸旋轉取負，Y 不變
+      const isV0 = vrm.meta?.metaVersion === '0';
+      const pose = POSES.find((p) => p.id === state.activePose) || POSES[0];
+      POSE_BONES.forEach((n) => get(n)?.rotation.set(0, 0, 0));
+      for (const [n, [x, y, z]] of Object.entries(pose.b)) {
+        get(n)?.rotation.set(isV0 ? -x : x, y, isV0 ? -z : z);
       }
-
-      // Force scene matrix update so changes render instantly
-      state.currentVRM.scene.updateMatrixWorld(true);
+      vrm.scene.updateMatrixWorld(true);
     }
 
     // --- 4. ANIMATION LOOP & IDLE BREATHING ---
@@ -796,8 +814,8 @@
         if (state.currentVRM.humanoid) {
           const spine = state.currentVRM.humanoid.getNormalizedBoneNode('spine');
           if (spine) {
-            spine.rotation.z = Math.sin(time * 1.5) * 0.015;
-            spine.rotation.x = Math.cos(time * 1.2) * 0.015;
+            spine.rotation.z += Math.sin(time * 1.5) * 0.015;
+            spine.rotation.x += Math.cos(time * 1.2) * 0.015;
           }
         }
 
@@ -822,6 +840,7 @@
         }
       }
 
+      if (stage.mode === 'stars') stage.group.rotation.y = time * 0.02;
       state.controls.update();
       state.renderer.render(state.scene, state.camera);
     }
@@ -847,6 +866,7 @@
           if (voice.default || voice.lang.includes('en')) option.selected = true;
           select.appendChild(option);
         });
+        applyCharVoice();
       };
 
       populateVoices();
@@ -880,25 +900,292 @@
       }
     }
 
-    function speakText(text) {
+    function speakText(text, c = activeChar()) {
       if (!state.speechSynth) return;
       state.speechSynth.cancel(); // Stop current speech
 
-      // Clean sentiment tags from spoken text
-      const cleanText = text.replace(/\[(happy|sad|angry|relaxed|neutral)\]/gi, '');
+      const utterance = new SpeechSynthesisUtterance(text.replace(TAG_RE, ''));
+      const voice = state.ttsVoices.find((v) => v.name === c.voiceName);
+      if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
 
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      const voiceIndex = document.getElementById('tts-voice-select').value;
-      if (state.ttsVoices[voiceIndex]) utterance.voice = state.ttsVoices[voiceIndex];
-
-      utterance.rate = parseFloat(document.getElementById('tts-rate').value);
-      utterance.pitch = parseFloat(document.getElementById('tts-pitch').value);
+      utterance.rate = c.rate;
+      utterance.pitch = c.pitch;
 
       utterance.onstart = () => { state.isSpeaking = true; };
       utterance.onend = () => { state.isSpeaking = false; };
       utterance.onerror = () => { state.isSpeaking = false; };
 
       state.speechSynth.speak(utterance);
+    }
+
+    // --- 5.4 OUTFIT COLOR（衣服換色）---
+    const CLOTH_RE = /cloth|tops|bottom|shoe|dress|skirt|onepiece|jacket|coat|uniform/i;
+    function vrmMaterials() {
+      const map = new Map();
+      state.currentVRM?.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        [].concat(o.material).forEach((m) => {
+          if (!m || !m.name) return;
+          if (!map.has(m.name)) map.set(m.name, []);
+          map.get(m.name).push(m);
+        });
+      });
+      return map;
+    }
+    function applyOutfit() {
+      const o = activeChar()?.outfit || {};
+      vrmMaterials().forEach((mats, name) => mats.forEach((m) => {
+        if (!m.color) return;
+        m.userData.orig ??= { c: m.color.getHex(), s: m.shadeColorFactor?.getHex() };
+        const hex = o[name] ?? (CLOTH_RE.test(name) ? o.__auto__ : undefined);
+        if (hex) {
+          m.color.set(hex);
+          m.shadeColorFactor?.set(hex).multiplyScalar(0.7);
+        } else {
+          m.color.setHex(m.userData.orig.c);
+          if (m.userData.orig.s !== undefined) m.shadeColorFactor.setHex(m.userData.orig.s);
+        }
+      }));
+    }
+    function refreshOutfitUI() {
+      const sel = $('outfit-target'), prev = sel.value;
+      sel.innerHTML = '<option value="__auto__">全部衣物（自動偵測）</option>';
+      vrmMaterials().forEach((_, name) => {
+        const op = document.createElement('option'); op.value = name; op.textContent = name; sel.appendChild(op);
+      });
+      if ([...sel.options].some((x) => x.value === prev)) sel.value = prev;
+      $('outfit-color').value = activeChar()?.outfit?.[sel.value] || '#ffffff';
+    }
+
+    // --- 5.45 BACKGROUND / STAGE（背景：CSS 圖片/純色 + three.js 3D）---
+    const STAGE_KEY = 'vrmchat.stage.v1';
+    const stage = { mode: 'default', color: '#0f172a', image: null, group: new THREE.Group(), stream: null, facing: 'environment' };
+    function saveStage() {
+      try { localStorage.setItem(STAGE_KEY, JSON.stringify({ mode: stage.mode, color: stage.color, image: stage.image })); }
+      catch (e) { console.warn('背景圖過大，未寫入儲存空間（本次仍有效）', e); }
+    }
+    function fileToDataURL(file, max = 1920) {
+      return new Promise((resolve, reject) => {
+        const img = new Image(), u = URL.createObjectURL(file);
+        img.onload = () => {
+          const s = Math.min(1, max / Math.max(img.width, img.height));
+          const cv = document.createElement('canvas');
+          cv.width = Math.round(img.width * s); cv.height = Math.round(img.height * s);
+          cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+          URL.revokeObjectURL(u); resolve(cv.toDataURL('image/jpeg', 0.85));
+        };
+        img.onerror = reject; img.src = u;
+      });
+    }
+    function applyStage() {
+      const bg = $('bg-layer'), s = stage;
+      state.scene.background?.dispose?.(); state.scene.background = null;
+      s.group.children.forEach((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+      s.group.clear(); s.group.rotation.set(0, 0, 0);
+      bg.style.background = '';
+      if (s.mode !== 'camera') stopCamera();
+
+      if (s.mode === 'color') bg.style.background = s.color;
+      else if (s.mode === 'image' && s.image) bg.style.background = `center / cover no-repeat url(${s.image})`;
+      else if (s.mode === 'panorama' && s.image) {
+        new THREE.TextureLoader().load(s.image, (t) => {
+          t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace;
+          if (s.mode === 'panorama') state.scene.background = t;
+        });
+      } else if (s.mode === 'stars') {
+        bg.style.background = 'radial-gradient(ellipse at bottom, #1b2735, #05070d)';
+        const n = 1800, pos = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          const r = 6 + Math.random() * 10, th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
+          pos.set([r * Math.sin(ph) * Math.cos(th), r * Math.cos(ph), r * Math.sin(ph) * Math.sin(th)], i * 3);
+        }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        s.group.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 0.05, sizeAttenuation: true })));
+      } else if (s.mode === 'stage') {
+        bg.style.background = 'linear-gradient(#0b1020, #1e293b)';
+        const grid = new THREE.GridHelper(24, 48, 0x3b82f6, 0x334155);
+        grid.material.transparent = true; grid.material.opacity = 0.55;
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.62, 64),
+          new THREE.MeshBasicMaterial({ color: 0x60a5fa, side: THREE.DoubleSide }));
+        ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005;
+        s.group.add(grid, ring);
+      }
+      $('bg-mode').value = s.mode;
+      $('bg-color').classList.toggle('hidden', s.mode !== 'color');
+      $('bg-color').value = s.color;
+      $('bg-facing').value = s.facing;
+      $('bg-facing').classList.toggle('hidden', s.mode !== 'camera');
+      $('bg-file-row').classList.toggle('hidden', !(s.mode === 'image' || s.mode === 'panorama'));
+      saveStage();
+    }
+    async function startCamera() {
+      stopCamera();
+      const v = $('bg-video');
+      const fail = (msg) => { alert(msg); stage.mode = 'default'; applyStage(); };
+      if (!navigator.mediaDevices?.getUserMedia) return fail('此連線無法使用相機：手機需以 HTTPS 或 localhost 開啟本頁面。');
+      try {
+        stage.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: stage.facing }, audio: false });
+        v.srcObject = stage.stream;
+        v.style.transform = stage.facing === 'user' ? 'scaleX(-1)' : '';
+        v.classList.remove('hidden');
+        await v.play().catch(() => {});
+      } catch (e) { fail('無法開啟相機：' + e.message); }
+    }
+    function stopCamera() {
+      stage.stream?.getTracks().forEach((t) => t.stop());
+      stage.stream = null;
+      const v = $('bg-video'); v.srcObject = null; v.classList.add('hidden');
+    }
+    function initStage() {
+      try { Object.assign(stage, JSON.parse(localStorage.getItem(STAGE_KEY)) || {}); } catch (e) { /* 無存檔 */ }
+      if (stage.mode === 'camera') stage.mode = 'default';
+      state.scene.add(stage.group);
+      $('bg-mode').onchange = (e) => { stage.mode = e.target.value; applyStage(); if (stage.mode === 'camera') startCamera(); };
+      $('bg-facing').onchange = (e) => { stage.facing = e.target.value; startCamera(); };
+      $('bg-color').oninput = (e) => { stage.color = e.target.value; applyStage(); };
+      $('bg-file').onchange = async (e) => {
+        const f = e.target.files[0]; if (!f) return;
+        try { stage.image = await fileToDataURL(f); applyStage(); } catch (err) { alert('圖片讀取失敗'); }
+        e.target.value = '';
+      };
+      $('bg-clear-btn').onclick = () => { stage.image = null; applyStage(); };
+      $('outfit-target').onchange = refreshOutfitUI;
+      $('outfit-color').oninput = (e) => {
+        const c = activeChar(); c.outfit[$('outfit-target').value] = e.target.value;
+        applyOutfit(); saveChars();
+      };
+      $('outfit-reset-btn').onclick = () => { activeChar().outfit = {}; applyOutfit(); refreshOutfitUI(); saveChars(); };
+      applyStage();
+    }
+
+    // --- 5.5 CHARACTER SYSTEM：每個角色擁有獨立 LLM / Persona / TTS / 對話紀錄 ---
+    const LS_KEY = 'vrmchat.characters.v1';
+    const TAG_RE = /[\[【](happy|sad|angry|relaxed|neutral|開心|難過|生氣|放鬆|平靜)[\]】]/gi;
+    const EMO = { happy:'happy', 開心:'happy', sad:'sad', 難過:'sad', angry:'angry', 生氣:'angry', relaxed:'relaxed', 放鬆:'relaxed', neutral:'neutral', 平靜:'neutral' };
+    const $ = (id) => document.getElementById(id);
+    const roster = { list: [], activeId: null };
+
+    function newChar(o = {}) {
+      return {
+        id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+        name: '角色', presetId: DEFAULT_PRESET_ID,
+        baseUrl: 'http://localhost:11434/v1', apiKey: '', model: '', temperature: 0.7,
+        systemPrompt: '', voiceName: '', rate: 1.0, pitch: 1.1, messages: [], outfit: {}, pose: 'natural', provider: 'puter', ...o
+      };
+    }
+    const activeChar = () => roster.list.find((c) => c.id === roster.activeId);
+    function saveChars() {
+      try { localStorage.setItem(LS_KEY, JSON.stringify(roster)); } catch (e) { console.warn('save failed', e); }
+    }
+    function loadChars() {
+      try {
+        const d = JSON.parse(localStorage.getItem(LS_KEY));
+        if (d && d.list && d.list.length) { roster.list = d.list.map((c) => newChar({ provider: 'openai', ...c })); roster.activeId = d.activeId; }
+      } catch (e) { /* 無存檔 */ }
+      if (!activeChar()) {
+        // 首次啟動：以頁面原有預設值建立第一個角色
+        const c = newChar({ name: '角色 1', provider: 'openai', model: $('api-model-name').value, systemPrompt: $('system-prompt').value });
+        roster.list = [c]; roster.activeId = c.id;
+      }
+    }
+    function renderSelect() {
+      const sel = $('char-select');
+      sel.innerHTML = '';
+      roster.list.forEach((c) => {
+        const o = document.createElement('option');
+        o.value = c.id; o.textContent = c.name; sel.appendChild(o);
+      });
+      sel.value = roster.activeId;
+    }
+    function applyCharVoice() {
+      const c = activeChar();
+      if (!c || !state.ttsVoices.length) return;
+      let i = state.ttsVoices.findIndex((v) => v.name === c.voiceName);
+      if (i < 0) i = state.ttsVoices.findIndex((v) => /^zh/i.test(v.lang));
+      if (i < 0) i = 0;
+      $('tts-voice-select').value = i;
+    }
+    function fillForm(c) {
+      $('char-name').value = c.name;
+      $('api-provider').value = c.provider;
+      $('api-base-url').value = c.baseUrl;
+      $('api-key').value = c.apiKey;
+      $('api-model-name').value = c.model;
+      $('api-temperature').value = c.temperature;
+      $('system-prompt').value = c.systemPrompt;
+      $('tts-rate').value = c.rate; $('tts-rate-val').innerText = c.rate;
+      $('tts-pitch').value = c.pitch; $('tts-pitch-val').innerText = c.pitch;
+      $('vrm-preset-select').value = c.presetId; updatePresetInfo();
+      applyCharVoice();
+    }
+    function syncForm() {
+      const c = activeChar();
+      c.name = $('char-name').value.trim() || c.name;
+      c.provider = $('api-provider').value;
+      toggleProvider(c);
+      c.baseUrl = $('api-base-url').value.trim();
+      c.apiKey = $('api-key').value;
+      c.model = $('api-model-name').value.trim();
+      const t = parseFloat($('api-temperature').value);
+      c.temperature = Number.isFinite(t) ? Math.min(2, Math.max(0, t)) : 0.7;
+      c.systemPrompt = $('system-prompt').value;
+      c.rate = parseFloat($('tts-rate').value);
+      c.pitch = parseFloat($('tts-pitch').value);
+      const v = state.ttsVoices[$('tts-voice-select').value];
+      if (v) c.voiceName = v.name;
+      const opt = $('char-select').querySelector(`option[value="${c.id}"]`);
+      if (opt) opt.textContent = c.name;
+      saveChars();
+    }
+    function toggleProvider(c) {
+      const puterOn = c.provider === 'puter';
+      $('openai-fields').classList.toggle('hidden', puterOn);
+      $('api-model-name').placeholder = puterOn ? '留空＝Puter 預設模型（或填 gpt-4o-mini）' : 'gpt-4o-mini, llama3, qwen2.5';
+    }
+    async function askPuter(c, messages) {
+      if (typeof puter === 'undefined') throw new Error('Puter.js 未載入（需可連線 js.puter.com）');
+      const opt = { temperature: c.temperature };
+      if (c.model) opt.model = c.model;
+      const r = await puter.ai.chat(messages, opt);
+      let t = typeof r === 'string' ? r : (r?.message?.content ?? r?.text);
+      if (Array.isArray(t)) t = t.map((x) => x.text || '').join('');
+      return t || 'No response received.';
+    }
+    function renderChat(c) {
+      $('chat-history').innerHTML = '';
+      appendChatMessage('assistant', `我是 ${c.name}，請多指教！`);
+      c.messages.forEach((m) => appendChatMessage(m.role, m.content.replace(TAG_RE, '').trim()));
+    }
+    function switchChar(id) {
+      roster.activeId = id;
+      const c = activeChar();
+      state.speechSynth?.cancel(); state.isSpeaking = false;
+      renderSelect(); fillForm(c); toggleProvider(c); renderChat(c); saveChars();
+      loadPresetVRM(c.presetId);
+    }
+    function initCharacters() {
+      initStage();
+      loadChars();
+      renderSelect();
+      $('char-select').onchange = (e) => switchChar(e.target.value);
+      $('settings-drawer').addEventListener('input', (e) => { if (!['char-select','bg-mode','bg-color','bg-file','bg-facing','outfit-target','outfit-color'].includes(e.target.id)) syncForm(); });
+      $('load-official-vrm-btn').addEventListener('click', () => {
+        activeChar().presetId = $('vrm-preset-select').value; saveChars();
+      });
+      $('char-add-btn').onclick = () => {
+        const base = activeChar();
+        const c = newChar({ name: `角色 ${roster.list.length + 1}`, systemPrompt: base.systemPrompt }); // 預設 provider = puter
+        roster.list.push(c); switchChar(c.id);
+      };
+      $('char-del-btn').onclick = () => {
+        if (roster.list.length <= 1) return alert('至少需保留一個角色。');
+        const c = activeChar();
+        if (!confirm(`刪除「${c.name}」及其對話紀錄？`)) return;
+        roster.list = roster.list.filter((x) => x.id !== c.id);
+        switchChar(roster.list[0].id);
+      };
+      fillForm(activeChar()); toggleProvider(activeChar()); renderChat(activeChar());
+      loadPresetVRM(activeChar().presetId);
     }
 
     // --- 6. CHATBOT LLM INTEGRATION ---
@@ -914,20 +1201,22 @@
       const typingEl = document.getElementById('typing-indicator');
       typingEl.classList.remove('hidden');
 
-      // Prepare API Request Payload
-      const baseUrl = document.getElementById('api-base-url').value.replace(/\/$/, "");
-      const apiKey = document.getElementById('api-key').value;
-      const model = document.getElementById('api-model-name').value;
-      const systemPrompt = document.getElementById('system-prompt').value;
+      // 鎖定發話當下的角色：即使請求中切換角色，回覆也只會寫入該角色
+      const c = activeChar();
+      const baseUrl = (c.baseUrl || '').replace(/\/$/, "");
+      const apiKey = c.apiKey;
+      const model = c.model;
 
-      state.messages.push({ role: 'user', content: message });
-
+      c.messages.push({ role: 'user', content: message });
       const requestMessages = [
-        { role: 'system', content: systemPrompt },
-        ...state.messages
+        { role: 'system', content: c.systemPrompt },
+        ...c.messages.slice(-40)
       ];
 
       try {
+        let assistantReply;
+        if (c.provider === 'puter') assistantReply = await askPuter(c, requestMessages);
+        else {
         const response = await fetch(`${baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
@@ -937,7 +1226,7 @@
           body: JSON.stringify({
             model: model,
             messages: requestMessages,
-            temperature: 0.7
+            temperature: c.temperature
           })
         });
 
@@ -946,22 +1235,23 @@
         }
 
         const data = await response.json();
-        const assistantReply = data.choices[0]?.message?.content || "No response received.";
+        assistantReply = data.choices[0]?.message?.content || "No response received.";
+        }
 
-        // Sentiment Expression Triggering based on response tag
-        if (assistantReply.includes('[happy]')) window.setVRMExpression('happy');
-        else if (assistantReply.includes('[sad]')) window.setVRMExpression('sad');
-        else if (assistantReply.includes('[angry]')) window.setVRMExpression('angry');
-        else if (assistantReply.includes('[relaxed]')) window.setVRMExpression('relaxed');
+        c.messages.push({ role: 'assistant', content: assistantReply });
+        saveChars();
 
-        state.messages.push({ role: 'assistant', content: assistantReply });
-        appendChatMessage('assistant', assistantReply);
-        speakText(assistantReply);
+        if (c.id === roster.activeId) {
+          const tag = [...assistantReply.matchAll(TAG_RE)].pop();
+          if (tag) window.setVRMExpression(EMO[tag[1].toLowerCase()] || 'neutral');
+          appendChatMessage('assistant', assistantReply.replace(TAG_RE, '').trim());
+          speakText(assistantReply, c);
+        }
 
       } catch (err) {
         console.error("Chat API Error:", err);
-        const errorMsg = `[Error] Could not connect to LLM endpoint: ${err.message}. Please check your base URL or API key settings.`;
-        appendChatMessage('assistant', errorMsg);
+        const errorMsg = `[Error] ${c.name} 無法連線至 LLM（${c.provider === 'puter' ? 'Puter AI' : c.baseUrl}）：${err.message}。請檢查此角色的 Base URL / API Key / Model。`;
+        if (c.id === roster.activeId) appendChatMessage('assistant', errorMsg);
       } finally {
         typingEl.classList.add('hidden');
       }
@@ -996,6 +1286,7 @@
 
     // --- 7. EVENT LISTENERS SETUP ---
     function setupUIEvents() {
+      buildPoseGrid();
       // Settings Drawer Toggles
       const drawer = document.getElementById('settings-drawer');
       document.getElementById('open-settings-btn').onclick = () => drawer.classList.remove('translate-x-full');
@@ -1100,7 +1391,7 @@
       init3D();
       initSpeech();
       setupUIEvents();
-      loadOfficialVRM(); // 啟動時自動載入官方 VRM
+      initCharacters(); // 載入角色存檔並載入其 VRM
     };
   </script>
 </body>
