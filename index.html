@@ -1781,6 +1781,10 @@ ${personaOf(c)}
         disc.transcript.push({ name: '使用者', text: message }); disc.pendingUser = true;
         return;
       }
+      if (disc.onStage && !disc.busy) {   // 舞台待命：把提問當成新話題，讓所有角色接著討論
+        continueDiscussion(message);
+        return;
+      }
 
       // Show Typing Indicator
       const typingEl = document.getElementById('typing-indicator');
@@ -2306,10 +2310,10 @@ ${personaOf(c)}
     }
 
     // --- 8.5 討論主流程 ---
-    async function runDiscussion(topic, rounds, order) {
+    async function runDiscussion(topic, rounds, order, keep = false) {
       const token = ++disc.token;
-      disc.active = true; disc.transcript = []; disc.pendingUser = false; updateDiscUI();
-      appendChatMessage('system', `🗣 討論開始｜話題：${topic}｜參與者：${disc.actors.map((a) => a.char.name).join('、')}`);
+      disc.active = true; disc.pendingUser = keep; if (!keep) disc.transcript = []; updateDiscUI();
+      appendChatMessage('system', keep ? `🗣 新話題：${topic}｜所有角色接著討論` : `🗣 討論開始｜話題：${topic}｜參與者：${disc.actors.map((a) => a.char.name).join('、')}`);
       let finished = false;
       try {
         outer: for (let r = 0; r < rounds; r++) {
@@ -2350,6 +2354,12 @@ ${personaOf(c)}
           updateDiscUI();
         }
       }
+    }
+
+    function continueDiscussion(message) {
+      const p = loadDiscPrefs();
+      disc.transcript.push({ name: '使用者', text: message });   // 保留前面的討論脈絡
+      runDiscussion(message, p.rounds || 1, p.order || 'seq', true);
     }
 
     function stopDiscussion() {
