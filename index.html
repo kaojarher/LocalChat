@@ -2485,12 +2485,22 @@ ${personaOf(c)}
     async function startRecording() {
       if (rec.recorder) return;
       let stream;
+      // 模式選擇：語音若是「本機系統語音」，聲音由作業系統播放，只錄分頁會沒有聲音
+      const screenMode = confirm(
+        '請選擇錄影模式：\n\n' +
+        '【確定】整個螢幕＋系統音訊\n　可錄到本機系統語音。Windows 的 Chrome / Edge：在分享視窗選「整個螢幕」，並勾選「分享系統音訊」。\n\n' +
+        '【取消】僅此分頁\n　只錄到分頁內的聲音，本機系統語音可能錄不到（Google 等網路語音通常可以）。'
+      );
       try {
-        // 1. 同時要求影像與音訊（audio: true 才會出現「分享分頁音訊」選項）
-        stream = await navigator.mediaDevices.getDisplayMedia({
+        // 1. 同時要求影像與音訊
+        stream = await navigator.mediaDevices.getDisplayMedia(screenMode ? {
+          video: { width: 1920, height: 1080, frameRate: 30 },
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+          systemAudio: 'include', monitorTypeSurfaces: 'include'
+        } : {
           video: { width: 1920, height: 1080, frameRate: 30 },
           audio: true,
-          preferCurrentTab: true, selfBrowserSurface: 'include'   // Chrome：預設選取目前分頁（其他瀏覽器會忽略）
+          preferCurrentTab: true, selfBrowserSurface: 'include'   // Chrome：預設選取目前分頁
         });
       } catch (err) {
         console.error('啟動錄製失敗:', err);
@@ -2499,7 +2509,7 @@ ${personaOf(c)}
       }
       // 2. 檢查使用者是否有勾選分享聲音
       if (!stream.getAudioTracks().length) {
-        if (!confirm('沒有偵測到分頁音訊（開始時未勾選「分享分頁音訊」）。\n\n按「確定」＝只錄影像（沒有聲音）\n按「取消」＝放棄，請重新開始並勾選「分享分頁音訊」')) {
+        if (!confirm('沒有偵測到音訊（分享視窗中未勾選「分享分頁音訊」或「分享系統音訊」，或此系統不支援）。\n\n按「確定」＝只錄影像（沒有聲音）\n按「取消」＝放棄，請重新開始並勾選音訊選項')) {
           stopTracks(stream); return;
         }
       }
