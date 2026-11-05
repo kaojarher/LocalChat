@@ -2494,13 +2494,12 @@ ${personaOf(c)}
       try {
         // 1. 同時要求影像與音訊
         stream = await navigator.mediaDevices.getDisplayMedia(screenMode ? {
-          video: { width: 1920, height: 1080, frameRate: 30 },
+          video: { width: 1920, height: 1080, frameRate: 30, displaySurface: 'monitor' },
           audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
           systemAudio: 'include', monitorTypeSurfaces: 'include'
         } : {
-          video: { width: 1920, height: 1080, frameRate: 30 },
-          audio: true,
-          preferCurrentTab: true, selfBrowserSurface: 'include'   // Chrome：預設選取目前分頁
+          video: { width: 1920, height: 1080, frameRate: 30, displaySurface: 'browser' },
+          audio: true   // 不使用 preferCurrentTab：它會讓 Chrome 只顯示「目前分頁」
         });
       } catch (err) {
         console.error('啟動錄製失敗:', err);
